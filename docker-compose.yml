@@ -2,10 +2,10 @@
 # Set the empty/secret values in Coolify's Environment Variables UI.
 services:
   executr:
-    build: .
-    # ^ Method A (git-based Coolify, builds from this repo).
-    #   For "Empty Docker Compose" / registry (Method B): delete `build: .` and use
-    #   image: ghcr.io/luiskisters/executr:latest   (built by .github/workflows/build.yml)
+    image: ghcr.io/luiskisters/executr:latest
+    # ^ Method B (recommended): prebuilt by CI -> avoids Coolify's compose build-context bugs.
+    #   Make the GHCR package pullable by Coolify (set it public, or add a read:packages token).
+    #   Method A (let Coolify build): replace the image: line with `build: .` and deploy from the git repo.
     restart: unless-stopped
     environment:
       # --- auth (Coolify secrets; see README) ---

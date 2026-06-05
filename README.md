@@ -51,9 +51,10 @@ claude setup-token            # -> CLAUDE_CODE_OAUTH_TOKEN   (VERIFY this keeps 
 
 ## Step 2 — Deploy on Coolify
 
-1. **Create the resource — pick one method.** The build needs the `Dockerfile`, so **do not** use Coolify's *Empty Docker Compose* (it pastes only the YAML — there's no build context, so `build: .` fails with `open Dockerfile: no such file or directory`).
-   - **A — Git-based Docker Compose (recommended, no registry):** New Resource → **Docker Compose** → **Private Repository** → `luisKisters/executr`, branch `main`, compose location `docker-compose.yml`. Coolify clones the repo (Dockerfile included) and builds. Needs your GitHub connected to Coolify (same as exponential).
-   - **B — Prebuilt image (works with *Empty* Docker Compose):** the included [`build-image`](./.github/workflows/build.yml) GitHub Action pushes `ghcr.io/luiskisters/executr:latest` on every push to `main`. Make that GHCR package pullable by Coolify (set it public, or add registry credentials), then in *Empty Docker Compose* paste the compose with `image: ghcr.io/luiskisters/executr:latest` in place of `build: .`.
+1. **Create the resource.** Two methods; **B is recommended** — Coolify has open bugs where the compose *build context* arrives empty even for git-based deploys ([coolify#6002](https://github.com/coollabsio/coolify/issues/6002), [#5182](https://github.com/coollabsio/coolify/issues/5182)), so letting Coolify build is flaky. The prebuilt image avoids building in Coolify entirely.
+   - **B — Prebuilt image (recommended):** the [`build-image`](./.github/workflows/build.yml) Action pushes `ghcr.io/luiskisters/executr:latest` on every push to `main`. Make that package pullable by Coolify — set it **public** (GitHub → your profile → Packages → executr → Package settings), or add a `read:packages` token as a registry credential in Coolify. Then deploy `docker-compose.yml` (it already references the image) via **Docker Compose** *or* **Empty Docker Compose** — no build context needed.
+   - **A — Let Coolify build (fallback):** New Resource → **Docker Compose** → **Private Repository** `luisKisters/executr`, branch `main`, compose `docker-compose.yml`, and replace the `image:` line with `build: .`. May hit the build-context bug above.
+   - Never use *Empty Docker Compose* with `build: .` — no Dockerfile in context, so it fails with `open Dockerfile: no such file or directory` (the original error).
 2. **Environment Variables** — set these (secrets where sensitive); see [`.env.example`](./.env.example):
    - `CLAUDE_CODE_OAUTH_TOKEN`, `GITHUB_TOKEN` (required)
    - `REPO_URL`, `REPO_BRANCH` (default: summario / main)

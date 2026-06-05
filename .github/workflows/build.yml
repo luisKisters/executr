@@ -4,6 +4,7 @@ name: build-image
 on:
   push:
     branches: [main]
+    paths-ignore: ['**.md', 'docker-compose.yml', '.env.example']
   workflow_dispatch:
 
 permissions:
