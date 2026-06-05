@@ -3,6 +3,14 @@
 # dashboard, and watch docs/plans for plans to execute autonomously.
 set -eu
 
+# Started as root (to fix the mounted volume's ownership), then drop to `app`
+# because Claude refuses --dangerously-skip-permissions as root.
+if [ "$(id -u)" = "0" ]; then
+  mkdir -p /workspace
+  chown -R app:app /workspace 2>/dev/null || true
+  exec runuser -u app -- "$0" "$@"
+fi
+
 : "${GITHUB_TOKEN:?set GITHUB_TOKEN (repo + workflow scope)}"
 REPO_URL="${REPO_URL:-https://github.com/luisKisters/summario.git}"
 REPO_BRANCH="${REPO_BRANCH:-main}"

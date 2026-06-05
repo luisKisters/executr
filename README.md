@@ -51,7 +51,9 @@ claude setup-token            # -> CLAUDE_CODE_OAUTH_TOKEN   (VERIFY this keeps 
 
 ## Step 2 — Deploy on Coolify
 
-1. **New Resource → Docker Compose**, pointed at this repo (it has the `Dockerfile`, `entrypoint.sh`, `docker-compose.yml`).
+1. **Create the resource — pick one method.** The build needs the `Dockerfile`, so **do not** use Coolify's *Empty Docker Compose* (it pastes only the YAML — there's no build context, so `build: .` fails with `open Dockerfile: no such file or directory`).
+   - **A — Git-based Docker Compose (recommended, no registry):** New Resource → **Docker Compose** → **Private Repository** → `luisKisters/executr`, branch `main`, compose location `docker-compose.yml`. Coolify clones the repo (Dockerfile included) and builds. Needs your GitHub connected to Coolify (same as exponential).
+   - **B — Prebuilt image (works with *Empty* Docker Compose):** the included [`build-image`](./.github/workflows/build.yml) GitHub Action pushes `ghcr.io/luiskisters/executr:latest` on every push to `main`. Make that GHCR package pullable by Coolify (set it public, or add registry credentials), then in *Empty Docker Compose* paste the compose with `image: ghcr.io/luiskisters/executr:latest` in place of `build: .`.
 2. **Environment Variables** — set these (secrets where sensitive); see [`.env.example`](./.env.example):
    - `CLAUDE_CODE_OAUTH_TOKEN`, `GITHUB_TOKEN` (required)
    - `REPO_URL`, `REPO_BRANCH` (default: summario / main)

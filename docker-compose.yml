@@ -3,6 +3,9 @@
 services:
   executr:
     build: .
+    # ^ Method A (git-based Coolify, builds from this repo).
+    #   For "Empty Docker Compose" / registry (Method B): delete `build: .` and use
+    #   image: ghcr.io/luiskisters/executr:latest   (built by .github/workflows/build.yml)
     restart: unless-stopped
     environment:
       # --- auth (Coolify secrets; see README) ---

@@ -17,18 +17,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && apt-get update && apt-get install -y --no-install-recommends gh \
  && rm -rf /var/lib/apt/lists/*
 
-# --- CLIs: pnpm, Claude Code, Codex, agent-browser (+ its Chrome) ---
-# NOTE: confirm the npm package names if an install fails (claude-code / codex).
+# --- CLIs: pnpm, Claude Code, Codex, agent-browser (verified package names) ---
 RUN corepack enable && corepack prepare pnpm@latest --activate
 RUN npm install -g @anthropic-ai/claude-code @openai/codex agent-browser
-RUN agent-browser install                     # downloads Chrome-for-Testing (glibc -> fine on Debian)
 
-# --- fya (Max-plan driver) + ralphex, from GitHub releases ---
-# NOTE: confirm the exact asset filenames on the releases pages if the build fails.
+# --- fya (Max-plan driver) + ralphex, latest release resolved at build time ---
+# Release assets are versioned (fya_<ver>_linux_<arch>.tar.gz), so resolve the tag first.
 RUN set -eux; ARCH="$(dpkg --print-architecture)"; \
-    curl -fsSL "https://github.com/umputun/fya/releases/latest/download/fya_linux_${ARCH}.tar.gz" \
+    FYA_VER="$(curl -fsSL https://api.github.com/repos/umputun/fya/releases/latest | jq -r .tag_name | sed 's/^v//')"; \
+    curl -fsSL "https://github.com/umputun/fya/releases/download/v${FYA_VER}/fya_${FYA_VER}_linux_${ARCH}.tar.gz" \
       | tar -xz -C /usr/local/bin fya; \
-    curl -fsSL "https://github.com/umputun/ralphex/releases/latest/download/ralphex_linux_${ARCH}.tar.gz" \
+    RLX_VER="$(curl -fsSL https://api.github.com/repos/umputun/ralphex/releases/latest | jq -r .tag_name | sed 's/^v//')"; \
+    curl -fsSL "https://github.com/umputun/ralphex/releases/download/v${RLX_VER}/ralphex_${RLX_VER}_linux_${ARCH}.tar.gz" \
       | tar -xz -C /usr/local/bin ralphex; \
     chmod +x /usr/local/bin/fya /usr/local/bin/ralphex
 
@@ -39,6 +39,14 @@ RUN printf '#!/bin/sh\nexport FYA_CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
+# --- non-root user (Claude refuses --dangerously-skip-permissions as root) ---
+# Download Chrome-for-Testing into the app user's HOME so it's found at runtime.
+RUN useradd -m -u 1000 -s /bin/bash app
+USER app
+RUN agent-browser install
+USER root
+
 WORKDIR /workspace
 EXPOSE 8080
+# entrypoint starts as root to chown the volume, then drops to `app`.
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
