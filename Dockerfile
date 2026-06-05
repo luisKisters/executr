@@ -40,9 +40,9 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # --- non-root user (Claude refuses --dangerously-skip-permissions as root) ---
-# Download Chrome-for-Testing into the app user's HOME so it's found at runtime.
-RUN useradd -m -u 1000 -s /bin/bash app
-USER app
+# node:22-bookworm already ships a non-root `node` user (uid 1000); reuse it.
+# Download Chrome-for-Testing into its HOME so it's found at runtime.
+USER node
 RUN agent-browser install
 USER root
 
