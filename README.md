@@ -3,7 +3,7 @@
   <h1>executr</h1>
 </div>
 
-Containerized **autonomous plan execution** for any target repository, deployable on Coolify.
+Containerized **autonomous plan execution** for one or more target repositories, deployable on Coolify.
 
 It wraps [umputun/ralphex](https://github.com/umputun/ralphex) (the "extended Ralph loop") and drives it through [umputun/fya](https://github.com/umputun/fya) so unattended runs stay on the **Claude Max plan** instead of the Agent-SDK credit pool. Each plan task runs in a fresh Claude session, gets validated, **browser-verified with [agent-browser](https://github.com/vercel-labs/agent-browser)**, code-reviewed (Claude agents + optional codex cross-model), and shipped as a GitHub PR.
 
@@ -23,9 +23,13 @@ It wraps [umputun/ralphex](https://github.com/umputun/ralphex) (the "extended Ra
 
 A long-running worker container:
 
-1. Clones the target repo (`REPO_URL`) into a persistent volume on first boot, `pnpm install`s it.
+1. Clones **every repo in `REPOS`** (comma-separated) into a persistent volume on first boot, `pnpm install`s each.
 2. Serves the ralphex **dashboard** on `:8080` (Coolify maps a domain).
-3. **Watches `docs/plans/*.md`** — drop a plan in and it executes: implement → validate → agent-browser check → commit → review → open PR.
+3. **Watches each repo's `docs/plans/*.md`** — drop a plan in and it executes: implement → validate → agent-browser check → commit → review → open PR.
+
+`REPOS` entries are `name=URL[#branch]` or just `URL`, e.g.
+`REPOS="app=https://github.com/your-org/your-repo.git#main,api=https://github.com/your-org/api.git"`.
+Each repo is cloned to `/workspace/<name>/` and runs independently. **The image is generic** — per-repo behavior (dev-server URL, the agent-browser check, whether to open a PR) lives in **each repo's own `.ralphex/` config**, so commit an `.ralphex/` into every target repo.
 
 A plan is plain markdown:
 
@@ -60,7 +64,7 @@ claude setup-token            # -> CLAUDE_CODE_OAUTH_TOKEN   (VERIFY this keeps 
    - Never use *Empty Docker Compose* with `build: .` — no Dockerfile in context, so it fails with `open Dockerfile: no such file or directory` (the original error).
 2. **Environment Variables** — set these (secrets where sensitive); see [`.env.example`](./.env.example):
    - `CLAUDE_CODE_OAUTH_TOKEN`, `GITHUB_TOKEN` (required)
-   - `REPO_URL`, `REPO_BRANCH` (the target repo / branch executr operates on)
+   - `REPOS` — comma-separated repos, `name=URL[#branch]` (falls back to `REPO_URL`/`REPO_BRANCH` if unset)
    - `EXTERNAL_REVIEW` (`none` default; set `codex` + `OPENAI_API_KEY` to enable cross-model review)
    - `GIT_AUTHOR_NAME` / `GIT_AUTHOR_EMAIL`
    - optional: `GROQ_API_KEY`, `TELEGRAM_BOT_TOKEN`
@@ -80,9 +84,9 @@ Drop a markdown plan into `/workspace/docs/plans/` — via Coolify's container t
 
 ## Gotchas (VERIFY on first deploy)
 
-1. **Claude token billing** — confirm `CLAUDE_CODE_OAUTH_TOKEN` + fya's interactive path bills to Max, not Agent-SDK credits. Smoke-test with a trivial plan first.
-2. **Release asset names** — confirm the exact `fya` / `ralphex` linux tarball filenames on their releases pages (the Dockerfile guesses `*_linux_<arch>.tar.gz`).
-3. **npm package names** — confirm `@anthropic-ai/claude-code` and `@openai/codex` if those installs fail.
+1. **Claude token billing** — `claude setup-token` is subscription-billed (Max) per [Anthropic's docs](https://code.claude.com/docs/en/authentication); still worth a trivial smoke-test on first deploy.
+2. **Release assets / build** — the Dockerfile resolves the latest `fya`/`ralphex` versions at build time and builds green in CI; runs non-root as `node` (Claude refuses `--dangerously-skip-permissions` as root).
+3. **Per-repo `.ralphex/`** — each target repo needs its own `.ralphex/` (config + prompts) committed, or it runs with ralphex defaults (no browser gate, no auto-PR).
 4. **Codex headless** — `OPENAI_API_KEY` bills per use; for the ChatGPT-plan codex, mount `~/.codex/auth.json` instead, or keep `EXTERNAL_REVIEW=none`.
 5. **Dashboard idle** — verify `ralphex --serve --watch` runs without prompting on your ralphex version.
 6. **Voice ask-human** — not wired yet; `TELEGRAM_BOT_TOKEN` here only powers ralphex's built-in notifications for now.
