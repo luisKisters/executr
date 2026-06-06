@@ -104,6 +104,9 @@ while true; do
   for entry in $REPO_LIST; do
     parse_entry "$entry"
     [ -d "$DIR" ] || continue
+    # refresh from origin each poll so plans/code pushed to the repo are picked up
+    # without a restart, and so each run starts from the latest base branch (best-effort)
+    ( cd "$DIR" && git fetch origin --quiet && git checkout "$BRANCH" --quiet 2>/dev/null && git pull --ff-only --quiet ) || true
     STATE_DIR="$DIR/.ralphex/plan-state"
     for plan in "$DIR"/docs/plans/*.md; do
       [ -e "$plan" ] || continue

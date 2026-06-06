@@ -25,7 +25,8 @@ A long-running worker container:
 
 1. Clones **every repo in `REPOS`** (comma-separated) into a persistent volume on first boot, `pnpm install`s each.
 2. Serves the ralphex **dashboard** on `:8080` (Coolify maps a domain).
-3. **Watches each repo's `docs/plans/*.md`** — drop a plan in and it executes **once per file content**: implement → validate → agent-browser check → commit → review → open PR.
+3. Every poll it **fetches + `git pull --ff-only`** each repo's base branch, so plans/code pushed to the repo are picked up without a restart and each run starts from the latest base.
+4. **Watches each repo's `docs/plans/*.md`** — drop (or push) a plan in and it executes **once per file content**: implement → validate → agent-browser check → commit → review → open PR.
 
 `REPOS` entries are `name=URL[#branch]` or just `URL`, e.g.
 `REPOS="app=https://github.com/your-org/your-repo.git#main,api=https://github.com/your-org/api.git"`.
