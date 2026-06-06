@@ -12,12 +12,12 @@ if [ "$(id -u)" = "0" ]; then
 fi
 
 : "${GITHUB_TOKEN:?set GITHUB_TOKEN (repo + workflow scope)}"
-REPO_URL="${REPO_URL:-https://github.com/luisKisters/summario.git}"
+REPO_URL="${REPO_URL:-https://github.com/your-org/your-repo.git}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 PLANS_DIR="/workspace/docs/plans"
 
 git config --global user.name  "${GIT_AUTHOR_NAME:-executr bot}"
-git config --global user.email "${GIT_AUTHOR_EMAIL:-luis.w.kisters@gmail.com}"
+git config --global user.email "${GIT_AUTHOR_EMAIL:-you@example.com}"
 git config --global credential.helper store
 printf 'https://x-access-token:%s@github.com\n' "$GITHUB_TOKEN" > "$HOME/.git-credentials"
 

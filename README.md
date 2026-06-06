@@ -3,7 +3,7 @@
   <h1>executr</h1>
 </div>
 
-Containerized **autonomous plan execution** for [summario](https://github.com/luisKisters/summario), deployable on Coolify.
+Containerized **autonomous plan execution** for any target repository, deployable on Coolify.
 
 It wraps [umputun/ralphex](https://github.com/umputun/ralphex) (the "extended Ralph loop") and drives it through [umputun/fya](https://github.com/umputun/fya) so unattended runs stay on the **Claude Max plan** instead of the Agent-SDK credit pool. Each plan task runs in a fresh Claude session, gets validated, **browser-verified with [agent-browser](https://github.com/vercel-labs/agent-browser)**, code-reviewed (Claude agents + optional codex cross-model), and shipped as a GitHub PR.
 
@@ -60,7 +60,7 @@ claude setup-token            # -> CLAUDE_CODE_OAUTH_TOKEN   (VERIFY this keeps 
    - Never use *Empty Docker Compose* with `build: .` — no Dockerfile in context, so it fails with `open Dockerfile: no such file or directory` (the original error).
 2. **Environment Variables** — set these (secrets where sensitive); see [`.env.example`](./.env.example):
    - `CLAUDE_CODE_OAUTH_TOKEN`, `GITHUB_TOKEN` (required)
-   - `REPO_URL`, `REPO_BRANCH` (default: summario / main)
+   - `REPO_URL`, `REPO_BRANCH` (the target repo / branch executr operates on)
    - `EXTERNAL_REVIEW` (`none` default; set `codex` + `OPENAI_API_KEY` to enable cross-model review)
    - `GIT_AUTHOR_NAME` / `GIT_AUTHOR_EMAIL`
    - optional: `GROQ_API_KEY`, `TELEGRAM_BOT_TOKEN`
@@ -97,4 +97,4 @@ docker compose up --build
 
 ## Background
 
-This is the deployment layer of the "executr" idea — adopting ralphex + fya rather than building an orchestrator from scratch. See the design notes in the summario/exponential work for the fuller picture (XML/markdown plans, per-phase browser gate, Telegram voice escalation).
+This is the deployment layer of the "executr" idea — adopting ralphex + fya rather than building an orchestrator from scratch (XML/markdown plans, per-phase browser gate, Telegram voice escalation).
