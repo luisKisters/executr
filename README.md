@@ -1,4 +1,7 @@
-# executr
+<div align="center">
+  <img src="./assets/executr-logo.svg" alt="executr logo" width="160" height="160">
+  <h1>executr</h1>
+</div>
 
 Containerized **autonomous plan execution** for [summario](https://github.com/luisKisters/summario), deployable on Coolify.
 

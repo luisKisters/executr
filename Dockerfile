@@ -2,6 +2,12 @@
 # Debian base so agent-browser's Chrome-for-Testing (glibc) runs reliably.
 FROM node:22-bookworm
 
+# --- OCI image metadata (shown on the GHCR package page) ---
+LABEL org.opencontainers.image.title="executr" \
+      org.opencontainers.image.description="Containerized autonomous plan execution (ralphex + fya + agent-browser), deployable on Coolify." \
+      org.opencontainers.image.source="https://github.com/luiskisters/executr" \
+      org.opencontainers.image.url="https://github.com/luiskisters/executr"
+
 # --- system deps: git, search, headless-Chrome shared libs, gh CLI ---
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git ca-certificates curl gnupg ripgrep jq tini \
