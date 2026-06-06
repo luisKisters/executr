@@ -45,6 +45,37 @@ parse_entry() {
   DIR="/workspace/$NAME"
 }
 
+# --- plan-state: run each plan once per content, never re-run on every poll ---
+plan_digest() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+# ralphex errors out ("no executable task sections") on plans lacking these,
+# so treat them as notes and skip rather than failing them every cycle.
+has_executable_sections() {
+  grep -Eq '^### (Task|Iteration) [0-9]+:' "$1"
+}
+
+# map a plan path to its state-file stem under the repo's plan-state dir
+plan_state_file() {
+  printf '%s/%s' "$1" "$(basename "$2" | tr -c 'A-Za-z0-9._-' '_')"
+}
+
+record_plan_state() {  # state_dir plan digest status
+  sf="$(plan_state_file "$1" "$2")"
+  printf '%s\n' "$3" > "$sf.sha256"
+  printf '%s\n' "$4" > "$sf.status"
+}
+
+plan_seen_unchanged() {  # state_dir plan digest
+  sf="$(plan_state_file "$1" "$2")"
+  [ -f "$sf.sha256" ] && [ "$(cat "$sf.sha256")" = "$3" ]
+}
+
 # clone/update + install each repo; collect dashboard watch dirs
 WATCH_ARGS=""
 for entry in $REPO_LIST; do
@@ -58,26 +89,49 @@ for entry in $REPO_LIST; do
     echo "executr: pnpm install in $NAME ..."
     ( cd "$DIR" && pnpm install --prefer-offline || pnpm install ) || true
   fi
-  mkdir -p "$DIR/docs/plans" "$DIR/.ralphex/progress"
+  mkdir -p "$DIR/docs/plans" "$DIR/.ralphex/progress" "$DIR/.ralphex/plan-state"
   WATCH_ARGS="$WATCH_ARGS --watch $DIR/.ralphex/progress"
 done
 
 # dashboard: monitor every repo's progress files (Coolify maps a domain to :8080)
+# Bind 0.0.0.0 (ralphex defaults to 127.0.0.1) so Coolify's reverse proxy and the
+# published port can reach it from outside the container — otherwise it's a 502.
 # NOTE: verify --serve --watch runs idle without prompting on your ralphex version.
-ralphex --serve --port "${RALPHEX_PORT:-8080}" $WATCH_ARGS &
+ralphex --serve --host "${RALPHEX_WEB_HOST:-0.0.0.0}" --port "${RALPHEX_PORT:-8080}" $WATCH_ARGS &
 
 echo "executr: watching plans across: $REPOS"
 while true; do
   for entry in $REPO_LIST; do
     parse_entry "$entry"
     [ -d "$DIR" ] || continue
+    STATE_DIR="$DIR/.ralphex/plan-state"
     for plan in "$DIR"/docs/plans/*.md; do
       [ -e "$plan" ] || continue
+
+      digest="$(plan_digest "$plan")"
+      # already handled this exact content (completed/failed/invalid) -> don't re-run.
+      # To retry, edit the plan so its hash changes.
+      if plan_seen_unchanged "$STATE_DIR" "$plan" "$digest"; then
+        continue
+      fi
+
+      if ! has_executable_sections "$plan"; then
+        echo "executr: [$NAME] skipping non-executable plan $(basename "$plan") (no '### Task N:' / '### Iteration N:')"
+        record_plan_state "$STATE_DIR" "$plan" "$digest" invalid
+        continue
+      fi
+
       echo "executr: [$NAME] running $(basename "$plan")"
-      ( cd "$DIR" && ralphex --no-color \
+      if ( cd "$DIR" && ralphex --no-color \
           --claude-command=/usr/local/bin/fya-wrapper.sh \
           --external-review-tool="${EXTERNAL_REVIEW:-none}" \
-          "docs/plans/$(basename "$plan")" ) || echo "executr: [$NAME] plan failed: $(basename "$plan")"
+          "docs/plans/$(basename "$plan")" ); then
+        echo "executr: [$NAME] plan completed: $(basename "$plan")"
+        record_plan_state "$STATE_DIR" "$plan" "$digest" completed
+      else
+        echo "executr: [$NAME] plan failed: $(basename "$plan")"
+        record_plan_state "$STATE_DIR" "$plan" "$digest" failed
+      fi
     done
   done
   sleep "${POLL_SECONDS:-30}"

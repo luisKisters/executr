@@ -25,7 +25,7 @@ A long-running worker container:
 
 1. Clones **every repo in `REPOS`** (comma-separated) into a persistent volume on first boot, `pnpm install`s each.
 2. Serves the ralphex **dashboard** on `:8080` (Coolify maps a domain).
-3. **Watches each repo's `docs/plans/*.md`** — drop a plan in and it executes: implement → validate → agent-browser check → commit → review → open PR.
+3. **Watches each repo's `docs/plans/*.md`** — drop a plan in and it executes **once per file content**: implement → validate → agent-browser check → commit → review → open PR.
 
 `REPOS` entries are `name=URL[#branch]` or just `URL`, e.g.
 `REPOS="app=https://github.com/your-org/your-repo.git#main,api=https://github.com/your-org/api.git"`.
@@ -41,6 +41,8 @@ A plan is plain markdown:
 - [ ] implement X
 - [ ] add tests
 ```
+
+Files without a `### Task N:` or `### Iteration N:` section are treated as non-executable notes and **skipped** (otherwise ralphex fails them on every poll). Each plan runs **once per content** — its outcome is recorded under the repo's `.ralphex/plan-state/`, so it is **not re-picked-up** on the next poll. To re-run a completed or failed plan, edit the file so its content hash changes.
 
 ## Step 1 — Mint headless auth tokens (on your Mac)
 
@@ -67,14 +69,14 @@ claude setup-token            # -> CLAUDE_CODE_OAUTH_TOKEN   (VERIFY this keeps 
    - `REPOS` — comma-separated repos, `name=URL[#branch]` (falls back to `REPO_URL`/`REPO_BRANCH` if unset)
    - `EXTERNAL_REVIEW` (`none` default; set `codex` + `OPENAI_API_KEY` to enable cross-model review)
    - `GIT_AUTHOR_NAME` / `GIT_AUTHOR_EMAIL`
-   - optional: `GROQ_API_KEY`, `TELEGRAM_BOT_TOKEN`
+   - optional: `GROQ_API_KEY`, `TELEGRAM_BOT_TOKEN`, `RALPHEX_WEB_HOST` (dashboard bind address; defaults to `0.0.0.0` so Coolify's proxy can reach it)
 3. **Storage** — the named volume `executr_repo` persists the clone, `docs/plans/`, and `.ralphex/` state across redeploys.
 4. **Domain** — point one at port `8080` for the dashboard.
 5. **Deploy.** First boot is slow (clone + `pnpm install` + Chrome already baked in).
 
 ## Step 3 — Run work
 
-Drop a markdown plan into `/workspace/docs/plans/` — via Coolify's container terminal, a committed file in the target repo, or the mounted volume. The loop picks it up; watch the dashboard; the PR lands on GitHub.
+Drop a markdown plan into `/workspace/<name>/docs/plans/` (per repo in `REPOS`) — via Coolify's container terminal, a committed file in the target repo, or the mounted volume. The loop picks it up; watch the dashboard; the PR lands on GitHub.
 
 ## How your MCPs / skills / envs carry over
 
