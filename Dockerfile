@@ -39,7 +39,12 @@ RUN set -eux; ARCH="$(dpkg --print-architecture)"; \
     chmod +x /usr/local/bin/fya /usr/local/bin/ralphex
 
 # --- fya wrapper: align FYA_CLAUDE_DIR with claude's config dir ---
-RUN printf '#!/bin/sh\nexport FYA_CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"\nexec /usr/local/bin/fya "$@"\n' \
+# --gate = unattended profile: abort a turn after 5m without transcript activity
+# (vs the 30m hard turn-timeout). fya/claude intermittently stalls at session
+# startup and writes no transcript; --gate makes ralphex retry such a dead turn in
+# ~5m instead of wasting a full 30m, while genuinely-working turns (which emit
+# transcript output continuously) are unaffected.
+RUN printf '#!/bin/sh\nexport FYA_CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"\nexec /usr/local/bin/fya --gate "$@"\n' \
       > /usr/local/bin/fya-wrapper.sh && chmod +x /usr/local/bin/fya-wrapper.sh
 
 # --- seed Claude config so fya's interactive session never blocks on a dialog ---
