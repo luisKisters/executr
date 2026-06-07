@@ -134,6 +134,25 @@ done
 # NOTE: verify --serve --watch runs idle without prompting on your ralphex version.
 ralphex --serve --host "${RALPHEX_WEB_HOST:-0.0.0.0}" --port "${RALPHEX_PORT:-8080}" $WATCH_ARGS &
 
+# Background: push each repo's active feature branch after every committed phase,
+# so work-in-progress is visible on GitHub and any branch-preview env redeploys per
+# phase. finalize still opens the PR at plan completion. Best-effort; never blocks.
+# Runs in a forked subshell, so it can't clobber the main loop's parse_entry globals.
+phase_pusher() {
+  while true; do
+    for entry in $REPO_LIST; do
+      parse_entry "$entry"
+      [ -d "$DIR/.git" ] || continue
+      ( cd "$DIR"
+        cur="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+        [ -n "$cur" ] && [ "$cur" != "$BRANCH" ] && [ "$cur" != "HEAD" ] \
+          && git push origin "$cur" 2>/dev/null ) || true
+    done
+    sleep "${PHASE_PUSH_SECONDS:-60}"
+  done
+}
+phase_pusher &
+
 echo "executr: watching plans across: $REPOS"
 while true; do
   for entry in $REPO_LIST; do
