@@ -30,6 +30,40 @@ git config --global user.email "${GIT_AUTHOR_EMAIL:-you@example.com}"
 git config --global credential.helper store
 printf 'https://x-access-token:%s@github.com\n' "$GITHUB_TOKEN" > "$HOME/.git-credentials"
 
+# external review (codex) needs auth; if requested but unauthed, fall back to none
+# so the review phase doesn't hard-fail and block finalize/PR.
+EXTERNAL_REVIEW="${EXTERNAL_REVIEW:-none}"
+if [ "$EXTERNAL_REVIEW" = "codex" ] && [ -z "${OPENAI_API_KEY:-}" ] && [ ! -f "$HOME/.codex/auth.json" ]; then
+  echo "executr: EXTERNAL_REVIEW=codex but no codex auth (OPENAI_API_KEY / ~/.codex/auth.json) -> using none"
+  EXTERNAL_REVIEW=none
+fi
+export EXTERNAL_REVIEW
+
+# --- Claude Code config: keep fya's interactive session from blocking on a dialog ---
+# Claude >=2.1 shows a modal "Bypass Permissions mode" acceptance dialog on EVERY
+# interactive launch with --dangerously-skip-permissions. fya drives the interactive
+# claude TUI and can't dismiss it, so the prompt never lands, no transcript is written,
+# and the turn dies on FYA_TRANSIENT_TIMEOUT (30m) -> ralphex retries the same iteration
+# forever with zero progress while burning Max usage. `skipDangerousModePermissionPrompt`
+# is claude's settings escape hatch for that dialog (also baked into the image); re-assert
+# it here so it holds even if the config dir lands on a fresh/overridden volume.
+CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+mkdir -p "$CLAUDE_DIR"
+printf '%s' '{"theme":"dark","skipDangerousModePermissionPrompt":true}' > "$CLAUDE_DIR/settings.json"
+[ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
+
+# pre-accept onboarding + per-repo "trust this folder" so the TUI never stops on those.
+trust_repo() {  # $1 = repo working dir
+  tmp="$(mktemp)" || return 0
+  if jq --arg d "$1" \
+       '.hasCompletedOnboarding=true | .bypassPermissionsModeAccepted=true | .projects[$d].hasTrustDialogAccepted=true' \
+       "$HOME/.claude.json" > "$tmp" 2>/dev/null; then
+    mv "$tmp" "$HOME/.claude.json"
+  else
+    rm -f "$tmp"
+  fi
+}
+
 # parse one entry -> sets NAME, URL, BRANCH, DIR
 parse_entry() {
   e="$1"
@@ -45,6 +79,37 @@ parse_entry() {
   DIR="/workspace/$NAME"
 }
 
+# --- plan-state: run each plan once per content, never re-run on every poll ---
+plan_digest() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+# ralphex errors out ("no executable task sections") on plans lacking these,
+# so treat them as notes and skip rather than failing them every cycle.
+has_executable_sections() {
+  grep -Eq '^### (Task|Iteration) [0-9]+:' "$1"
+}
+
+# map a plan path to its state-file stem under the repo's plan-state dir
+plan_state_file() {
+  printf '%s/%s' "$1" "$(basename "$2" | tr -c 'A-Za-z0-9._-' '_')"
+}
+
+record_plan_state() {  # state_dir plan digest status
+  sf="$(plan_state_file "$1" "$2")"
+  printf '%s\n' "$3" > "$sf.sha256"
+  printf '%s\n' "$4" > "$sf.status"
+}
+
+plan_seen_unchanged() {  # state_dir plan digest
+  sf="$(plan_state_file "$1" "$2")"
+  [ -f "$sf.sha256" ] && [ "$(cat "$sf.sha256")" = "$3" ]
+}
+
 # clone/update + install each repo; collect dashboard watch dirs
 WATCH_ARGS=""
 for entry in $REPO_LIST; do
@@ -58,26 +123,53 @@ for entry in $REPO_LIST; do
     echo "executr: pnpm install in $NAME ..."
     ( cd "$DIR" && pnpm install --prefer-offline || pnpm install ) || true
   fi
-  mkdir -p "$DIR/docs/plans" "$DIR/.ralphex/progress"
+  mkdir -p "$DIR/docs/plans" "$DIR/.ralphex/progress" "$DIR/.ralphex/plan-state"
+  trust_repo "$DIR"
   WATCH_ARGS="$WATCH_ARGS --watch $DIR/.ralphex/progress"
 done
 
 # dashboard: monitor every repo's progress files (Coolify maps a domain to :8080)
+# Bind 0.0.0.0 (ralphex defaults to 127.0.0.1) so Coolify's reverse proxy and the
+# published port can reach it from outside the container — otherwise it's a 502.
 # NOTE: verify --serve --watch runs idle without prompting on your ralphex version.
-ralphex --serve --port "${RALPHEX_PORT:-8080}" $WATCH_ARGS &
+ralphex --serve --host "${RALPHEX_WEB_HOST:-0.0.0.0}" --port "${RALPHEX_PORT:-8080}" $WATCH_ARGS &
 
 echo "executr: watching plans across: $REPOS"
 while true; do
   for entry in $REPO_LIST; do
     parse_entry "$entry"
     [ -d "$DIR" ] || continue
+    # refresh from origin each poll so plans/code pushed to the repo are picked up
+    # without a restart, and so each run starts from the latest base branch (best-effort)
+    ( cd "$DIR" && git fetch origin --quiet && git checkout "$BRANCH" --quiet 2>/dev/null && git pull --ff-only --quiet ) || true
+    STATE_DIR="$DIR/.ralphex/plan-state"
     for plan in "$DIR"/docs/plans/*.md; do
       [ -e "$plan" ] || continue
+
+      digest="$(plan_digest "$plan")"
+      # already handled this exact content (completed/failed/invalid) -> don't re-run.
+      # To retry, edit the plan so its hash changes.
+      if plan_seen_unchanged "$STATE_DIR" "$plan" "$digest"; then
+        continue
+      fi
+
+      if ! has_executable_sections "$plan"; then
+        echo "executr: [$NAME] skipping non-executable plan $(basename "$plan") (no '### Task N:' / '### Iteration N:')"
+        record_plan_state "$STATE_DIR" "$plan" "$digest" invalid
+        continue
+      fi
+
       echo "executr: [$NAME] running $(basename "$plan")"
-      ( cd "$DIR" && ralphex --no-color \
+      if ( cd "$DIR" && ralphex --no-color \
           --claude-command=/usr/local/bin/fya-wrapper.sh \
           --external-review-tool="${EXTERNAL_REVIEW:-none}" \
-          "docs/plans/$(basename "$plan")" ) || echo "executr: [$NAME] plan failed: $(basename "$plan")"
+          "docs/plans/$(basename "$plan")" ); then
+        echo "executr: [$NAME] plan completed: $(basename "$plan")"
+        record_plan_state "$STATE_DIR" "$plan" "$digest" completed
+      else
+        echo "executr: [$NAME] plan failed: $(basename "$plan")"
+        record_plan_state "$STATE_DIR" "$plan" "$digest" failed
+      fi
     done
   done
   sleep "${POLL_SECONDS:-30}"

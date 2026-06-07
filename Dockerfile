@@ -42,6 +42,19 @@ RUN set -eux; ARCH="$(dpkg --print-architecture)"; \
 RUN printf '#!/bin/sh\nexport FYA_CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"\nexec /usr/local/bin/fya "$@"\n' \
       > /usr/local/bin/fya-wrapper.sh && chmod +x /usr/local/bin/fya-wrapper.sh
 
+# --- seed Claude config so fya's interactive session never blocks on a dialog ---
+# Claude >=2.1 shows a modal "Bypass Permissions mode" acceptance dialog on EVERY
+# interactive launch with --dangerously-skip-permissions. fya drives the interactive
+# claude TUI and can't dismiss it, so the prompt is never delivered, no transcript is
+# written, and every turn dies on FYA_TRANSIENT_TIMEOUT (30m) -> ralphex retries the
+# same iteration forever, making zero progress while burning Max usage.
+# `skipDangerousModePermissionPrompt` is claude's settings escape hatch (the pp() gate)
+# that suppresses that dialog. Bake it in so it survives container recreation.
+RUN mkdir -p /home/node/.claude \
+ && printf '%s' '{"theme":"dark","skipDangerousModePermissionPrompt":true}' \
+      > /home/node/.claude/settings.json \
+ && chown -R node:node /home/node/.claude
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
