@@ -30,6 +30,15 @@ git config --global user.email "${GIT_AUTHOR_EMAIL:-you@example.com}"
 git config --global credential.helper store
 printf 'https://x-access-token:%s@github.com\n' "$GITHUB_TOKEN" > "$HOME/.git-credentials"
 
+# external review (codex) needs auth; if requested but unauthed, fall back to none
+# so the review phase doesn't hard-fail and block finalize/PR.
+EXTERNAL_REVIEW="${EXTERNAL_REVIEW:-none}"
+if [ "$EXTERNAL_REVIEW" = "codex" ] && [ -z "${OPENAI_API_KEY:-}" ] && [ ! -f "$HOME/.codex/auth.json" ]; then
+  echo "executr: EXTERNAL_REVIEW=codex but no codex auth (OPENAI_API_KEY / ~/.codex/auth.json) -> using none"
+  EXTERNAL_REVIEW=none
+fi
+export EXTERNAL_REVIEW
+
 # parse one entry -> sets NAME, URL, BRANCH, DIR
 parse_entry() {
   e="$1"
