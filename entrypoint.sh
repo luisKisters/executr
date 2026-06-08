@@ -30,6 +30,12 @@ git config --global user.email "${GIT_AUTHOR_EMAIL:-you@example.com}"
 git config --global credential.helper store
 printf 'https://x-access-token:%s@github.com\n' "$GITHUB_TOKEN" > "$HOME/.git-credentials"
 
+# Keep build output (Swift .build/, .swiftpm/, etc.) from dirtying repo trees — ralphex
+# refuses to create a feature branch when the working tree is dirty.
+mkdir -p "$HOME/.config/git"
+printf '%s\n' '.build/' '.swiftpm/' '*.swiftmodule' > "$HOME/.config/git/ignore"
+git config --global core.excludesfile "$HOME/.config/git/ignore"
+
 # external review (codex) needs auth; if requested but unauthed, fall back to none
 # so the review phase doesn't hard-fail and block finalize/PR.
 EXTERNAL_REVIEW="${EXTERNAL_REVIEW:-none}"

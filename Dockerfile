@@ -38,6 +38,24 @@ RUN set -eux; ARCH="$(dpkg --print-architecture)"; \
       | tar -xz -C /usr/local/bin ralphex; \
     chmod +x /usr/local/bin/fya /usr/local/bin/ralphex
 
+# --- Swift toolchain (for Swift/macOS plans, e.g. notetakr) — Debian 12 native build ---
+# The base image has no Swift; Swift plans' local-validate runs `swift test`. Baked in so a
+# persistent dev env survives container recreation (a live-installed Swift is wiped on every
+# Coolify redeploy). swiftly's auto-install is broken on Debian (it builds a URL with a space),
+# so fetch the official debian12 tarball directly. NOTE: adds a ~1GB layer + slower image pulls.
+ARG SWIFT_VERSION=6.3.2
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      binutils libc6-dev libcurl4-openssl-dev libedit2 libgcc-12-dev libpython3-dev \
+      libstdc++-12-dev libxml2-dev libz3-dev pkg-config tzdata unzip zlib1g-dev libncurses6 \
+ && rm -rf /var/lib/apt/lists/* \
+ && curl -fSL "https://download.swift.org/swift-${SWIFT_VERSION}-release/debian12/swift-${SWIFT_VERSION}-RELEASE/swift-${SWIFT_VERSION}-RELEASE-debian12.tar.gz" \
+      -o /tmp/swift.tar.gz \
+ && mkdir -p /opt/swift && tar -xzf /tmp/swift.tar.gz -C /opt/swift --strip-components=1 \
+ && rm /tmp/swift.tar.gz \
+ && ln -sf /opt/swift/usr/bin/swift  /usr/local/bin/swift \
+ && ln -sf /opt/swift/usr/bin/swiftc /usr/local/bin/swiftc \
+ && swift --version
+
 # --- fya wrapper: align FYA_CLAUDE_DIR with claude's config dir ---
 # NB: keep the default 30m turn-timeout. fya/claude intermittently stalls at session
 # startup (no transcript written); the 30m timeout then fires FYA_TRANSIENT_TIMEOUT and
