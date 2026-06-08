@@ -39,12 +39,14 @@ RUN set -eux; ARCH="$(dpkg --print-architecture)"; \
     chmod +x /usr/local/bin/fya /usr/local/bin/ralphex
 
 # --- fya wrapper: align FYA_CLAUDE_DIR with claude's config dir ---
-# --gate = unattended profile: abort a turn after 5m without transcript activity
-# (vs the 30m hard turn-timeout). fya/claude intermittently stalls at session
-# startup and writes no transcript; --gate makes ralphex retry such a dead turn in
-# ~5m instead of wasting a full 30m, while genuinely-working turns (which emit
-# transcript output continuously) are unaffected.
-RUN printf '#!/bin/sh\nexport FYA_CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"\nexec /usr/local/bin/fya --gate "$@"\n' \
+# NB: keep the default 30m turn-timeout. fya/claude intermittently stalls at session
+# startup (no transcript written); the 30m timeout then fires FYA_TRANSIENT_TIMEOUT and
+# ralphex RETRIES the iteration (self-heals). Tempting fixes were rejected: fya --gate
+# only counts idle *after* the first transcript write (so it misses the no-transcript
+# startup stall, and would wrongly abort genuinely-long turns that idle the transcript
+# during one command, e.g. a Swift toolchain download); an external watchdog kill makes
+# ralphex report "context canceled" and FAIL the whole plan instead of retrying.
+RUN printf '#!/bin/sh\nexport FYA_CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"\nexec /usr/local/bin/fya "$@"\n' \
       > /usr/local/bin/fya-wrapper.sh && chmod +x /usr/local/bin/fya-wrapper.sh
 
 # --- seed Claude config so fya's interactive session never blocks on a dialog ---
