@@ -30,10 +30,16 @@ git config --global user.email "${GIT_AUTHOR_EMAIL:-you@example.com}"
 git config --global credential.helper store
 printf 'https://x-access-token:%s@github.com\n' "$GITHUB_TOKEN" > "$HOME/.git-credentials"
 
-# Keep build output (Swift .build/, .swiftpm/, etc.) from dirtying repo trees — ralphex
-# refuses to create a feature branch when the working tree is dirty.
+# Keep build output (Swift .build/, .swiftpm/, etc.) AND ralphex's own runtime
+# state (.ralphex/ = executr plan-state + ralphex progress logs) from dirtying
+# repo trees: ralphex refuses to create a feature branch when the working tree is
+# dirty. Once a repo has run its first plan, the leftover untracked .ralphex/
+# files would otherwise make the tree dirty and block branch creation for EVERY
+# subsequent plan ("worktree has uncommitted changes"). Belt-and-suspenders: also
+# add it to each repo's .git/info/exclude below (survives a restart that re-runs
+# this entrypoint, since core.excludesfile is rewritten here on every start).
 mkdir -p "$HOME/.config/git"
-printf '%s\n' '.build/' '.swiftpm/' '*.swiftmodule' > "$HOME/.config/git/ignore"
+printf '%s\n' '.build/' '.swiftpm/' '*.swiftmodule' '.ralphex/' > "$HOME/.config/git/ignore"
 git config --global core.excludesfile "$HOME/.config/git/ignore"
 
 # external review (codex) needs auth; if requested but unauthed, fall back to none
@@ -130,6 +136,12 @@ for entry in $REPO_LIST; do
     ( cd "$DIR" && pnpm install --prefer-offline || pnpm install ) || true
   fi
   mkdir -p "$DIR/docs/plans" "$DIR/.ralphex/progress" "$DIR/.ralphex/plan-state"
+  # ralphex's runtime state must never count as a "dirty" tree, or branch
+  # creation fails for the 2nd+ plan. Persist the rule in the repo's own
+  # exclude (lives in the /workspace volume; survives restarts/redeploys).
+  if [ -f "$DIR/.git/info/exclude" ] && ! grep -qxF '.ralphex/' "$DIR/.git/info/exclude"; then
+    printf '%s\n' '.ralphex/' >> "$DIR/.git/info/exclude"
+  fi
   trust_repo "$DIR"
   WATCH_ARGS="$WATCH_ARGS --watch $DIR/.ralphex/progress"
 done
