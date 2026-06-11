@@ -312,24 +312,24 @@ existing dashboard + orchestrator observe it identically.
 
 ### Task 10: Telegram planning bot — text sessions, allowlist, approval channel
 
-- [ ] Bot process (or sibling within the control-plane) using `TELEGRAM_BOT_TOKEN`; accept
+- [x] Bot process (or sibling within the control-plane) using `TELEGRAM_BOT_TOKEN`; accept
       messages **only** from `TELEGRAM_ALLOWLIST` user IDs.
-- [ ] Session commands: `/session new <name>`, `/session list`, `/session switch <id|name>`,
+- [x] Session commands: `/session new <name>`, `/session list`, `/session switch <id|name>`,
       `/session delete <id|name>`, `/repo <repo>` (target selector only), `/plan` (calls the
       provider `draftPlan` from Task 6 to synthesize the session into ralphex markdown),
       `/submit` (POST the draft to the plan-creation API from Task 4).
-- [ ] Session state persisted (DB): telegram user/chat ID, session id/name, target repo,
+- [x] Session state persisted (DB): telegram user/chat ID, session id/name, target repo,
       conversation transcript, draft plan, submission status, created/updated timestamps.
-- [ ] Telegram as an approval/notification **channel** over the Task 2/Task 9 mechanisms:
+- [x] Telegram as an approval/notification **channel** over the Task 2/Task 9 mechanisms:
       status notifications, provider-switch notices, "I fixed X automatically" notices
       (non-blocking), and **approval requests only** for the high-risk actions from Task 9
       (terse: what happened / what was already tried / proposed risky action /
       approve·deny·explain). Telegram must never be a normal blocking step in execution.
-- [ ] **Unit tests:** allowlist rejects non-listed IDs; each command handler mutates session
+- [x] **Unit tests:** allowlist rejects non-listed IDs; each command handler mutates session
       state correctly; `/plan` produces valid ralphex markdown via `draftPlan`; `/submit`
       calls the API; an approval decision over Telegram updates the Task 2 store (mock the
       Telegram API).
-- [ ] **agent-browser:** the Sessions UI view reflects bot-created sessions and their
+- [x] **agent-browser:** the Sessions UI view reflects bot-created sessions and their
       submission status, and an approval decided via Telegram shows as resolved in the
       Activity/Timeline view.
 

@@ -6,6 +6,18 @@ export interface Config {
   sessionSecret: string;
   port: number;
   host: string;
+  telegramBotToken: string;
+  telegramAllowlist: number[];
+}
+
+export function parseTelegramAllowlist(raw: string | undefined): number[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(Number)
+    .filter(n => Number.isFinite(n) && n > 0);
 }
 
 export function loadConfig(): Config {
@@ -17,6 +29,11 @@ export function loadConfig(): Config {
   const sessionSecret = process.env.SESSION_SECRET ?? password;
   const port = parseInt(process.env.CONTROL_PLANE_PORT ?? '8090', 10);
   const host = process.env.HOST ?? '0.0.0.0';
+  const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN ?? '';
+  const telegramAllowlist = parseTelegramAllowlist(process.env.TELEGRAM_ALLOWLIST);
 
-  return { workspaceRoot, orchestratorDbPath, claimsDir, password, sessionSecret, port, host };
+  return {
+    workspaceRoot, orchestratorDbPath, claimsDir, password, sessionSecret,
+    port, host, telegramBotToken, telegramAllowlist,
+  };
 }

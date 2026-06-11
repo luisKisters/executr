@@ -12,10 +12,12 @@ import {
   renderActivityPage,
   renderSessionsPage,
   type PlanProviderInfo,
+  type SessionRow,
 } from './views';
-import { openDatabase, listExecutions, listApprovalRequests, updateApprovalRequestStatus, type OrchestratorDB } from './db';
+import { openDatabase, listExecutions, listApprovalRequests, updateApprovalRequestStatus, listTelegramSessions, type OrchestratorDB } from './db';
 import { ObserverPoller } from './observer';
 import { RecoveryPoller } from './recovery';
+import { TelegramBot } from './telegram';
 import {
   listRepos,
   listPlansForRepo,
@@ -46,9 +48,26 @@ export async function createServer(
 
   const poller = new ObserverPoller(_db, { workspaceRoot: config.workspaceRoot });
   const recoveryPoller = new RecoveryPoller(_db, { workspaceRoot: config.workspaceRoot });
+  let telegramBot: TelegramBot | null = null;
+  if (config.telegramBotToken) {
+    telegramBot = new TelegramBot({
+      config: { botToken: config.telegramBotToken, allowlist: config.telegramAllowlist },
+      db: _db,
+      workspaceRoot: config.workspaceRoot,
+      claimsDir: config.claimsDir,
+    });
+  }
   if (startObserver) {
-    app.addHook('onReady', async () => { poller.start(); recoveryPoller.start(); });
-    app.addHook('onClose', async () => { poller.stop(); recoveryPoller.stop(); });
+    app.addHook('onReady', async () => {
+      poller.start();
+      recoveryPoller.start();
+      telegramBot?.start();
+    });
+    app.addHook('onClose', async () => {
+      poller.stop();
+      recoveryPoller.stop();
+      telegramBot?.stop();
+    });
   }
 
   await app.register(cookie, {
@@ -218,7 +237,20 @@ export async function createServer(
   });
 
   app.get('/sessions', async (_request, reply) => {
-    return reply.type('text/html').send(renderSessionsPage());
+    const sessions = listTelegramSessions(_db).map((s): SessionRow => ({
+      id: s.id,
+      name: s.sessionName,
+      targetRepo: s.targetRepo,
+      status: s.status,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+    }));
+    return reply.type('text/html').send(renderSessionsPage(sessions));
+  });
+
+  app.get('/api/sessions', async (_request, reply) => {
+    const sessions = listTelegramSessions(_db);
+    return reply.send(sessions);
   });
 
   // ── Debug / legacy ─────────────────────────────────────────────────

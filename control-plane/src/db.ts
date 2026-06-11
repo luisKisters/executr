@@ -105,6 +105,32 @@ function runMigrations(db: DatabaseSync): void {
       INSERT INTO schema_version (version) VALUES (2)
     `);
   }
+
+  if (currentVersion < 3) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS telegram_sessions (
+        id TEXT PRIMARY KEY,
+        telegram_user_id INTEGER NOT NULL,
+        telegram_chat_id INTEGER NOT NULL,
+        session_name TEXT NOT NULL,
+        target_repo TEXT,
+        transcript TEXT NOT NULL DEFAULT '[]',
+        draft_plan TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        is_current INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS telegram_known_users (
+        user_id INTEGER PRIMARY KEY,
+        chat_id INTEGER NOT NULL,
+        first_seen_at INTEGER NOT NULL
+      );
+
+      INSERT INTO schema_version (version) VALUES (3)
+    `);
+  }
 }
 
 export function insertExecution(
@@ -304,4 +330,120 @@ function toApprovalRequestRow(r: Record<string, unknown>): ApprovalRequestRow {
     createdAt: r['created_at'] as number,
     decidedAt: (r['decided_at'] as number | null) ?? null,
   };
+}
+
+// ── Telegram session types + CRUD ────────────────────────────────────────
+
+export interface TelegramSessionRow {
+  id: string;
+  telegramUserId: number;
+  telegramChatId: number;
+  sessionName: string;
+  targetRepo: string | null;
+  transcript: string[];
+  draftPlan: string | null;
+  status: 'active' | 'submitted' | 'abandoned';
+  isCurrent: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+function toTelegramSessionRow(r: Record<string, unknown>): TelegramSessionRow {
+  let transcript: string[] = [];
+  try {
+    const parsed = JSON.parse(r['transcript'] as string) as unknown;
+    if (Array.isArray(parsed)) transcript = parsed as string[];
+  } catch { /* ignore */ }
+  return {
+    id: r['id'] as string,
+    telegramUserId: r['telegram_user_id'] as number,
+    telegramChatId: r['telegram_chat_id'] as number,
+    sessionName: r['session_name'] as string,
+    targetRepo: (r['target_repo'] as string | null) ?? null,
+    transcript,
+    draftPlan: (r['draft_plan'] as string | null) ?? null,
+    status: r['status'] as 'active' | 'submitted' | 'abandoned',
+    isCurrent: (r['is_current'] as number) === 1,
+    createdAt: r['created_at'] as number,
+    updatedAt: r['updated_at'] as number,
+  };
+}
+
+export function insertTelegramSession(db: OrchestratorDB, row: TelegramSessionRow): void {
+  db.prepare(`
+    INSERT INTO telegram_sessions (
+      id, telegram_user_id, telegram_chat_id, session_name,
+      target_repo, transcript, draft_plan, status, is_current,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    row.id, row.telegramUserId, row.telegramChatId, row.sessionName,
+    row.targetRepo ?? null, JSON.stringify(row.transcript),
+    row.draftPlan ?? null, row.status, row.isCurrent ? 1 : 0,
+    row.createdAt, row.updatedAt
+  );
+}
+
+export function getTelegramSessionById(db: OrchestratorDB, id: string): TelegramSessionRow | null {
+  const r = db.prepare('SELECT * FROM telegram_sessions WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+  return r ? toTelegramSessionRow(r) : null;
+}
+
+export function getTelegramSessionsForUser(db: OrchestratorDB, userId: number): TelegramSessionRow[] {
+  const rows = db.prepare('SELECT * FROM telegram_sessions WHERE telegram_user_id = ? ORDER BY created_at DESC').all(userId) as Record<string, unknown>[];
+  return rows.map(toTelegramSessionRow);
+}
+
+export function getCurrentSessionForUser(db: OrchestratorDB, userId: number): TelegramSessionRow | null {
+  const r = db.prepare('SELECT * FROM telegram_sessions WHERE telegram_user_id = ? AND is_current = 1 LIMIT 1').get(userId) as Record<string, unknown> | undefined;
+  return r ? toTelegramSessionRow(r) : null;
+}
+
+export function updateTelegramSession(
+  db: OrchestratorDB,
+  id: string,
+  updates: {
+    targetRepo?: string | null;
+    transcript?: string[];
+    draftPlan?: string | null;
+    status?: 'active' | 'submitted' | 'abandoned';
+    isCurrent?: boolean;
+  }
+): void {
+  const now = Date.now();
+  const sets: string[] = ['updated_at = ?'];
+  const vals: unknown[] = [now];
+
+  if ('targetRepo' in updates) { sets.push('target_repo = ?'); vals.push(updates.targetRepo ?? null); }
+  if (updates.transcript !== undefined) { sets.push('transcript = ?'); vals.push(JSON.stringify(updates.transcript)); }
+  if ('draftPlan' in updates) { sets.push('draft_plan = ?'); vals.push(updates.draftPlan ?? null); }
+  if (updates.status !== undefined) { sets.push('status = ?'); vals.push(updates.status); }
+  if (updates.isCurrent !== undefined) { sets.push('is_current = ?'); vals.push(updates.isCurrent ? 1 : 0); }
+
+  vals.push(id);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db.prepare(`UPDATE telegram_sessions SET ${sets.join(', ')} WHERE id = ?`).run(...(vals as any[]));
+}
+
+export function setCurrentSession(db: OrchestratorDB, userId: number, newSessionId: string): void {
+  db.prepare('UPDATE telegram_sessions SET is_current = 0 WHERE telegram_user_id = ?').run(userId);
+  db.prepare('UPDATE telegram_sessions SET is_current = 1 WHERE id = ?').run(newSessionId);
+}
+
+export function listTelegramSessions(db: OrchestratorDB): TelegramSessionRow[] {
+  const rows = db.prepare('SELECT * FROM telegram_sessions ORDER BY created_at DESC').all() as Record<string, unknown>[];
+  return rows.map(toTelegramSessionRow);
+}
+
+export function upsertKnownUser(db: OrchestratorDB, userId: number, chatId: number): void {
+  db.prepare(`
+    INSERT INTO telegram_known_users (user_id, chat_id, first_seen_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET chat_id = excluded.chat_id
+  `).run(userId, chatId, Date.now());
+}
+
+export function getKnownUserChatIds(db: OrchestratorDB): number[] {
+  const rows = db.prepare('SELECT chat_id FROM telegram_known_users').all() as { chat_id: number }[];
+  return rows.map(r => r.chat_id);
 }
