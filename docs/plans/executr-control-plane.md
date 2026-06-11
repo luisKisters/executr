@@ -335,19 +335,19 @@ existing dashboard + orchestrator observe it identically.
 
 ### Task 11: Wire the control-plane into the container
 
-- [ ] Start the control-plane service from `entrypoint.sh` alongside the ralphex dashboard
+- [x] Start the control-plane service from `entrypoint.sh` alongside the ralphex dashboard
       (own port via `CONTROL_PLANE_PORT`, default `8090`; dashboard stays on 8080). Keep the
       Task 2 entrypoint guard intact.
-- [ ] Add env to `docker-compose.yml` + `.env.example`: `CONTROL_PLANE_PASSWORD`,
+- [x] Add env to `docker-compose.yml` + `.env.example`: `CONTROL_PLANE_PASSWORD`,
       `CONTROL_PLANE_PORT`, `TELEGRAM_ALLOWLIST` (reuse existing `TELEGRAM_BOT_TOKEN`,
       `GROQ_API_KEY`). Document the new port mapping.
-- [ ] Ensure the service starts as `node`, reads/writes `/workspace` correctly, and survives a
+- [x] Ensure the service starts as `node`, reads/writes `/workspace` correctly, and survives a
       `docker restart` (state in `ORCHESTRATOR_DB_PATH`).
-- [ ] **Unit tests:** the env/config wiring resolves correctly for the container layout
+- [x] **Unit tests:** the env/config wiring resolves correctly for the container layout
       (ports, paths, allowlist parsing).
-- [ ] **Integration tests:** boot the service with env wired as in the container and hit
+- [x] **Integration tests:** boot the service with env wired as in the container and hit
       `/healthz` + one authed API route end-to-end against a fixture workspace.
-- [ ] **agent-browser:** full end-to-end smoke — log in, view overview, create a plan via the
+- [x] **agent-browser:** full end-to-end smoke — log in, view overview, create a plan via the
       form, confirm it lands in `docs/plans/` and appears in the list.
 
 ### Task 12: Repo registry in the state DB (the source of truth, replacing the REPOS env)

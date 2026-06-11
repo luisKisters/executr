@@ -170,6 +170,25 @@ for entry in $REPO_LIST; do
   WATCH_ARGS="$WATCH_ARGS --watch $DIR/.ralphex/progress"
 done
 
+# Control-plane service: build and start alongside the ralphex dashboard.
+# Lives inside the self-hosted executr clone at /workspace/executr/control-plane.
+# Starts on CONTROL_PLANE_PORT (default 8090); the ralphex dashboard stays on 8080.
+# Build is synchronous so we always run the latest source; failure is non-fatal —
+# the ralphex loop continues unaffected (the additive guard is already in place).
+_cp_dir="/workspace/executr/control-plane"
+if [ -d "$_cp_dir" ] && [ -f "$_cp_dir/package.json" ]; then
+  echo "executr: building control-plane ..."
+  _cp_ok=1
+  ( cd "$_cp_dir" && pnpm install --prefer-offline 2>&1 || pnpm install 2>&1 ) || _cp_ok=0
+  [ "$_cp_ok" = "1" ] && ( cd "$_cp_dir" && pnpm run build 2>&1 ) || _cp_ok=0
+  if [ "$_cp_ok" = "1" ] && [ -f "$_cp_dir/dist/index.js" ]; then
+    node "$_cp_dir/dist/index.js" &
+    echo "executr: control-plane started on port ${CONTROL_PLANE_PORT:-8090}"
+  else
+    echo "executr: control-plane build failed — skipping (ralphex loop unaffected)"
+  fi
+fi
+
 # dashboard: monitor every repo's progress files (Coolify maps a domain to :8080)
 # Bind 0.0.0.0 (ralphex defaults to 127.0.0.1) so Coolify's reverse proxy and the
 # published port can reach it from outside the container — otherwise it's a 502.

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { loadConfig } from '../../src/config';
+import { loadConfig, parseTelegramAllowlist } from '../../src/config';
 
 const ENV_KEYS = [
   'WORKSPACE_ROOT',
@@ -9,6 +9,8 @@ const ENV_KEYS = [
   'SESSION_SECRET',
   'CONTROL_PLANE_PORT',
   'HOST',
+  'TELEGRAM_ALLOWLIST',
+  'TELEGRAM_BOT_TOKEN',
 ];
 
 afterEach(() => {
@@ -92,5 +94,59 @@ describe('loadConfig env overrides', () => {
     process.env.CONTROL_PLANE_PORT = '9090';
     const config = loadConfig();
     expect(config.port).toBe(9090);
+  });
+});
+
+describe('loadConfig — TELEGRAM_ALLOWLIST wiring', () => {
+  it('returns empty array when TELEGRAM_ALLOWLIST is not set', () => {
+    const config = loadConfig();
+    expect(config.telegramAllowlist).toEqual([]);
+  });
+
+  it('parses comma-separated TELEGRAM_ALLOWLIST user IDs', () => {
+    process.env.TELEGRAM_ALLOWLIST = '111,222,333';
+    const config = loadConfig();
+    expect(config.telegramAllowlist).toEqual([111, 222, 333]);
+  });
+
+  it('strips whitespace from TELEGRAM_ALLOWLIST entries', () => {
+    process.env.TELEGRAM_ALLOWLIST = '  111 , 222  ';
+    const config = loadConfig();
+    expect(config.telegramAllowlist).toEqual([111, 222]);
+  });
+
+  it('drops non-numeric entries from TELEGRAM_ALLOWLIST', () => {
+    process.env.TELEGRAM_ALLOWLIST = '111,abc,222';
+    const config = loadConfig();
+    expect(config.telegramAllowlist).toEqual([111, 222]);
+  });
+});
+
+describe('parseTelegramAllowlist edge cases', () => {
+  it('handles single ID', () => {
+    expect(parseTelegramAllowlist('42')).toEqual([42]);
+  });
+
+  it('returns empty for all-invalid entries', () => {
+    expect(parseTelegramAllowlist('abc,xyz')).toEqual([]);
+  });
+});
+
+describe('container-layout config wiring', () => {
+  it('defaults match the container layout: /workspace root, port 8090, host 0.0.0.0', () => {
+    const config = loadConfig();
+    expect(config.workspaceRoot).toBe('/workspace');
+    expect(config.orchestratorDbPath).toBe('/workspace/.executr/orchestrator.db');
+    expect(config.claimsDir).toBe('/workspace/.executr/claims');
+    expect(config.port).toBe(8090);
+    expect(config.host).toBe('0.0.0.0');
+  });
+
+  it('CONTROL_PLANE_PASSWORD and CONTROL_PLANE_PORT from container env', () => {
+    process.env.CONTROL_PLANE_PASSWORD = 'container-secret';
+    process.env.CONTROL_PLANE_PORT = '8090';
+    const config = loadConfig();
+    expect(config.password).toBe('container-secret');
+    expect(config.port).toBe(8090);
   });
 });
