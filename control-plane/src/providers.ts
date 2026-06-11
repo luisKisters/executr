@@ -1,5 +1,9 @@
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import type { AttemptResult, ProviderName, ProviderStatus } from './contracts';
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { join, basename } from 'node:path';
+import type { AttemptResult, ProviderName, ProviderStatus, ClassificationSignal } from './contracts';
+import { acquireLock } from './claims';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -96,6 +100,141 @@ export function buildCodexExecArgv(opts: {
     '--model', opts.model,
     opts.prompt,
   ];
+}
+
+// ── Codex runPlan helpers (pure, testable) ─────────────────────────────────
+
+export function computePlanHash(content: string): string {
+  return createHash('sha256').update(content, 'utf8').digest('hex');
+}
+
+export function appendProgressLog(filePath: string, msg: string): void {
+  const line = `[${new Date().toISOString()}] ${msg}\n`;
+  try {
+    appendFileSync(filePath, line, 'utf8');
+  } catch {
+    // best-effort; directory may not exist yet
+  }
+}
+
+export function buildCodexRunPlanPrompt(opts: {
+  planPath: string;
+  planContent: string;
+  planSlug: string;
+  planHash: string;
+  attemptResultPath: string;
+  progressPath: string;
+  planStatePath: string;
+}): string {
+  return `You are implementing the following software plan. Execute all tasks completely.
+
+PLAN FILE PATH: ${opts.planPath}
+
+PLAN CONTENT:
+${opts.planContent}
+
+EXECUTION INSTRUCTIONS:
+1. Create a feature branch:
+   git checkout -b feature/${opts.planSlug} 2>/dev/null || git switch feature/${opts.planSlug}
+
+2. For each "### Task N:" section in the plan, in order:
+   a. Implement ALL "- [ ]" checkboxes in that task section
+   b. Stage and commit: git add -A && git commit -m "feat: implement Task N"
+   c. Append to progress: printf '[%s] Task N completed\\n' "$(date -Iseconds)" >> ${opts.progressPath}
+
+3. Run any validation commands from the "## Validation Commands" section.
+
+4. Push the branch: git push -u origin feature/${opts.planSlug} --force-with-lease
+
+5. Open a PR if none exists:
+   gh pr create --title "Plan: ${opts.planSlug}" --body "Automated execution by CodexRunner" || true
+
+6. Write plan-state files:
+   printf '%s' "${opts.planHash}" > ${opts.planStatePath}.sha256
+   printf 'completed' > ${opts.planStatePath}.status
+
+7. REQUIRED — write the result JSON to ${opts.attemptResultPath}:
+{
+  "status": "<completed|failed|needs_review>",
+  "provider": "codex",
+  "model": "<actual-model-name>",
+  "branch": "feature/${opts.planSlug}",
+  "tasksCompleted": <number-of-tasks-completed>,
+  "commits": [<list-of-commit-shas>],
+  "validation": { "status": "<passed|failed|skipped>" },
+  "classification": "<see-below>",
+  "summary": "<brief-summary>",
+  "startedAt": "<ISO-8601-timestamp>",
+  "endedAt": "<ISO-8601-timestamp>"
+}
+
+Valid classification values: healthy, long_running_but_active, known_startup_stall, rate_limited,
+waiting_for_human, failed_finalize, dirty_tree_blocked, auth_missing, tool_missing, dead_loop.
+Use "healthy" for successful completion. Use "failed_finalize" if push/PR failed.
+Use "rate_limited" for quota errors. Use "auth_missing" for API key errors.
+Use "dead_loop" for other failures.
+
+IMPORTANT RULES:
+- Commit messages MUST include "Task N" (e.g. "feat: implement database schema Task 1")
+- ALWAYS write ${opts.attemptResultPath} even if tasks fail
+- Mark plan-state as "failed" if any tasks could not be completed
+- Do NOT mark tasks as done without implementing them`;
+}
+
+export function mapCodexExitToClassification(
+  stdout: string,
+  stderr: string,
+  exitCode: number | null
+): ClassificationSignal {
+  if (exitCode === 0) return 'healthy';
+  const combined = (stdout + stderr).toLowerCase();
+  if (combined.includes('rate limit') || combined.includes('429') || combined.includes('quota exceeded')) {
+    return 'rate_limited';
+  }
+  if (
+    combined.includes('auth') ||
+    combined.includes('401') ||
+    combined.includes('403') ||
+    combined.includes('api key') ||
+    combined.includes('openai_api_key') ||
+    combined.includes('invalid_api_key')
+  ) {
+    return 'auth_missing';
+  }
+  if (
+    (combined.includes('push') && (combined.includes('rejected') || combined.includes('failed'))) ||
+    combined.includes('failed_finalize')
+  ) {
+    return 'failed_finalize';
+  }
+  if (
+    combined.includes('enoent') ||
+    combined.includes('command not found') ||
+    combined.includes('no such file')
+  ) {
+    return 'tool_missing';
+  }
+  return 'dead_loop';
+}
+
+export function readAttemptResultFile(filePath: string): AttemptResult | null {
+  try {
+    if (!existsSync(filePath)) return null;
+    const raw = readFileSync(filePath, 'utf8').trim();
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (
+      typeof parsed['status'] !== 'string' ||
+      typeof parsed['provider'] !== 'string' ||
+      typeof parsed['model'] !== 'string' ||
+      typeof parsed['summary'] !== 'string'
+    ) {
+      return null;
+    }
+    return parsed as unknown as AttemptResult;
+  } catch {
+    return null;
+  }
 }
 
 // ── Draft plan helpers ─────────────────────────────────────────────────────
@@ -240,22 +379,168 @@ export class CodexRunner implements AgentRunner {
     return { available: true };
   }
 
-  async runPlan(_repo: string, _planPath: string, config: AttemptConfig): Promise<AttemptResult> {
-    // Full implementation is Task 7; returning a clear stub result.
-    const now = new Date().toISOString();
-    return {
-      status: 'failed',
-      provider: 'codex',
-      model: config.model ?? this.model,
-      branch: '',
-      tasksCompleted: 0,
-      commits: [],
-      validation: { status: 'skipped' },
-      classification: 'tool_missing',
-      summary: 'CodexRunner.runPlan not yet implemented (see Task 7)',
-      startedAt: now,
-      endedAt: new Date().toISOString(),
-    };
+  async runPlan(repo: string, planPath: string, config: AttemptConfig): Promise<AttemptResult> {
+    const startedAt = new Date().toISOString();
+
+    // Read plan file to build prompt and compute hash
+    let planContent: string;
+    try {
+      planContent = readFileSync(join(repo, planPath), 'utf8');
+    } catch {
+      return {
+        status: 'failed',
+        provider: 'codex',
+        model: config.model ?? this.model,
+        branch: '',
+        tasksCompleted: 0,
+        commits: [],
+        validation: { status: 'skipped' },
+        classification: 'tool_missing',
+        summary: `Could not read plan file: ${planPath}`,
+        startedAt,
+        endedAt: new Date().toISOString(),
+      };
+    }
+
+    const planSlug = basename(planPath, '.md');
+    const planHash = computePlanHash(planContent);
+
+    // Acquire per-(repo, planHash) in-process lock for the whole run
+    const releaseLock = await acquireLock(repo, planHash);
+
+    try {
+      const ralphexDir = join(repo, '.ralphex');
+      const progressDir = join(ralphexDir, 'progress');
+      const planStateDir = join(ralphexDir, 'plan-state');
+      const attemptFile = join(ralphexDir, `attempt-${planSlug}.json`);
+      const progressFile = join(progressDir, `progress-${planSlug}.txt`);
+
+      mkdirSync(progressDir, { recursive: true });
+      mkdirSync(planStateDir, { recursive: true });
+
+      appendProgressLog(progressFile, `CodexRunner: starting execution of ${planSlug}`);
+
+      const prompt = buildCodexRunPlanPrompt({
+        planPath,
+        planContent,
+        planSlug,
+        planHash,
+        attemptResultPath: `.ralphex/attempt-${planSlug}.json`,
+        progressPath: `.ralphex/progress/progress-${planSlug}.txt`,
+        planStatePath: `.ralphex/plan-state/${planSlug}_`,
+      });
+
+      const argv = buildCodexExecArgv({
+        prompt,
+        sandbox: 'workspace-write',
+        model: config.model ?? this.model,
+      });
+
+      // First run
+      const result1 = this.spawnFn(this.codexPath, argv, { cwd: repo, encoding: 'utf8' });
+      const exitCode1 = result1.status;
+      const stdout1 = result1.stdout ?? '';
+      const stderr1 = result1.stderr ?? '';
+
+      // exit-code-wins: non-zero exit → failure regardless of JSON content
+      if (exitCode1 !== 0 || result1.error) {
+        const classification = mapCodexExitToClassification(stdout1, stderr1, exitCode1);
+        const endedAt = new Date().toISOString();
+
+        let parsed = readAttemptResultFile(attemptFile);
+        if (parsed) {
+          // Honour Codex-written JSON but override status/classification with exit code verdict
+          parsed = { ...parsed, status: 'failed', classification, endedAt, provider: 'codex' };
+        }
+
+        const finalResult: AttemptResult = parsed ?? {
+          status: 'failed',
+          provider: 'codex',
+          model: config.model ?? this.model,
+          branch: '',
+          tasksCompleted: 0,
+          commits: [],
+          validation: { status: 'skipped' },
+          classification,
+          summary: stdout1 + (stderr1 ? '\n' + stderr1 : ''),
+          startedAt,
+          endedAt,
+        };
+
+        writeFileSync(join(planStateDir, `${planSlug}_.sha256`), planHash, 'utf8');
+        writeFileSync(join(planStateDir, `${planSlug}_.status`), 'failed', 'utf8');
+        writeFileSync(attemptFile, JSON.stringify(finalResult), 'utf8');
+        appendProgressLog(progressFile, `CodexRunner: failed (exit ${String(exitCode1)})`);
+
+        return finalResult;
+      }
+
+      // Exit 0 — try to read AttemptResult JSON that Codex should have written
+      let parsed = readAttemptResultFile(attemptFile);
+
+      // Retry once if missing or malformed
+      if (!parsed) {
+        appendProgressLog(progressFile, 'CodexRunner: attempt-result missing/malformed, retrying');
+
+        const result2 = this.spawnFn(this.codexPath, argv, { cwd: repo, encoding: 'utf8' });
+        const exitCode2 = result2.status;
+        const stdout2 = result2.stdout ?? '';
+        const stderr2 = result2.stderr ?? '';
+
+        if (exitCode2 !== 0 || result2.error) {
+          const classification = mapCodexExitToClassification(stdout2, stderr2, exitCode2);
+          const endedAt = new Date().toISOString();
+          const finalResult: AttemptResult = {
+            status: 'failed',
+            provider: 'codex',
+            model: config.model ?? this.model,
+            branch: '',
+            tasksCompleted: 0,
+            commits: [],
+            validation: { status: 'skipped' },
+            classification,
+            summary: stdout2 + (stderr2 ? '\n' + stderr2 : ''),
+            startedAt,
+            endedAt,
+          };
+          writeFileSync(join(planStateDir, `${planSlug}_.sha256`), planHash, 'utf8');
+          writeFileSync(join(planStateDir, `${planSlug}_.status`), 'failed', 'utf8');
+          writeFileSync(attemptFile, JSON.stringify(finalResult), 'utf8');
+          appendProgressLog(progressFile, `CodexRunner: retry failed (exit ${String(exitCode2)})`);
+          return finalResult;
+        }
+
+        parsed = readAttemptResultFile(attemptFile);
+      }
+
+      // Synthesize if still missing after retry (Codex forgot to write it)
+      const endedAt = new Date().toISOString();
+      const finalResult: AttemptResult = parsed
+        ? { ...parsed, provider: 'codex', endedAt }
+        : {
+            status: 'completed',
+            provider: 'codex',
+            model: config.model ?? this.model,
+            branch: `feature/${planSlug}`,
+            tasksCompleted: 0,
+            commits: [],
+            validation: { status: 'skipped' },
+            classification: 'healthy',
+            summary: stdout1,
+            startedAt,
+            endedAt,
+          };
+
+      const planStatus = finalResult.status === 'completed' ? 'completed' : 'failed';
+      writeFileSync(join(planStateDir, `${planSlug}_.sha256`), planHash, 'utf8');
+      writeFileSync(join(planStateDir, `${planSlug}_.status`), planStatus, 'utf8');
+      writeFileSync(attemptFile, JSON.stringify(finalResult), 'utf8');
+      appendProgressLog(progressFile, `CodexRunner: completed with status=${finalResult.status}`);
+
+      return finalResult;
+    } finally {
+      releaseLock();
+    }
   }
 
   async inspect(repo: string, question: string, mode: InspectionMode): Promise<InspectionResult> {

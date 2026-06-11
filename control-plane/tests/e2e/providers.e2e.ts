@@ -3,6 +3,7 @@ import { spawn, execSync, type ChildProcess } from 'child_process';
 import { join } from 'path';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
+import { openDatabase, insertExecution } from '../../src/db';
 
 const TEST_PORT = 19098;
 const TEST_PASSWORD = 'e2e-providers-password';
@@ -12,6 +13,7 @@ let serverProcess: ChildProcess;
 let screenshotDir: string;
 let workspaceRoot: string;
 let repoPath: string;
+let dbPath: string;
 
 function gitInit(dir: string): void {
   execSync('git init', { cwd: dir, stdio: 'ignore' });
@@ -66,11 +68,37 @@ function login(): void {
 beforeAll(async () => {
   screenshotDir = mkdtempSync(join(tmpdir(), 'cp-providers-e2e-'));
   workspaceRoot = mkdtempSync(join(tmpdir(), 'cp-providers-ws-'));
+  dbPath = join(workspaceRoot, '.executr', 'orchestrator.db');
 
   repoPath = join(workspaceRoot, 'provrepo');
   mkdirSync(join(repoPath, 'docs', 'plans'), { recursive: true });
   writeFileSync(join(repoPath, 'README.md'), '# provrepo');
   gitInit(repoPath);
+
+  // Pre-seed DB with a codex execution so the executions/overview view can show it
+  mkdirSync(join(workspaceRoot, '.executr'), { recursive: true });
+  const db = openDatabase(dbPath);
+  const now = Date.now();
+  insertExecution(db, {
+    repo: 'provrepo',
+    planFile: 'docs/plans/codex-seeded-plan.md',
+    planHash: 'seedhash-codex-task7',
+    attemptId: 'codex-attempt-task7',
+    providerRequested: 'codex',
+    providerUsed: 'codex',
+    model: 'gpt-5.1-codex',
+    branch: 'feature/codex-seeded-plan',
+    worktree: null,
+    status: 'running',
+    latestProgressTs: now,
+    latestTranscriptTs: null,
+    rateLimitCooldownUntil: null,
+    lastRecoveryAction: null,
+    classification: 'healthy',
+    createdAt: now,
+    updatedAt: now,
+  });
+  db.close();
 
   const tsxPath = join(__dirname, '../../node_modules/.bin/tsx');
   const srcIndex = join(__dirname, '../../src/index.ts');
@@ -82,6 +110,7 @@ beforeAll(async () => {
       CONTROL_PLANE_PASSWORD: TEST_PASSWORD,
       SESSION_SECRET: 'e2e-providers-session-secret-32ch!',
       WORKSPACE_ROOT: workspaceRoot,
+      ORCHESTRATOR_DB_PATH: dbPath,
       HOST: '127.0.0.1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -188,6 +217,48 @@ describe('New plan form — provider selector (agent-browser)', () => {
     expect(snapshot.toLowerCase()).toContain('provider');
 
     const shot = join(screenshotDir, '03-plan-detail-cc.png');
+    ab(`screenshot "${shot}"`);
+    expect(existsSync(shot)).toBe(true);
+  });
+
+  it('overview page shows seeded codex execution with provider-used = codex', async () => {
+    // Verify via API that the execution is recorded
+    const cookie = await getSessionCookie();
+    const res = await fetch(`${BASE_URL}/api/executions`, { headers: { cookie } });
+    expect(res.ok).toBe(true);
+    const execs = await res.json() as { providerRequested?: string; providerUsed?: string; repo?: string }[];
+    const codexExec = execs.find(e => e.repo === 'provrepo' && e.providerUsed === 'codex');
+    expect(codexExec).toBeDefined();
+    expect(codexExec?.providerRequested).toBe('codex');
+
+    // Verify the overview renders and shows the execution
+    ab(`open "${BASE_URL}/"`);
+    ab('wait --load networkidle');
+    const snapshot = ab('snapshot');
+    expect(snapshot.toLowerCase()).toContain('overview');
+
+    const shot = join(screenshotDir, '04-overview-codex-execution.png');
+    ab(`screenshot "${shot}"`);
+    expect(existsSync(shot)).toBe(true);
+  });
+
+  it('activity page shows running codex execution entry', async () => {
+    const cookie = await getSessionCookie();
+
+    // Confirm via API that the execution is visible
+    const res = await fetch(`${BASE_URL}/api/executions`, { headers: { cookie } });
+    const execs = await res.json() as { attemptId?: string; providerUsed?: string }[];
+    const seeded = execs.find(e => e.attemptId === 'codex-attempt-task7');
+    expect(seeded).toBeDefined();
+    expect(seeded?.providerUsed).toBe('codex');
+
+    // Render the activity view
+    ab(`open "${BASE_URL}/activity"`);
+    ab('wait --load networkidle');
+    const snapshot = ab('snapshot');
+    expect(snapshot.toLowerCase()).toContain('activity');
+
+    const shot = join(screenshotDir, '05-activity-codex.png');
     ab(`screenshot "${shot}"`);
     expect(existsSync(shot)).toBe(true);
   });

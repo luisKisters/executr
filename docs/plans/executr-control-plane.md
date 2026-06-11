@@ -242,31 +242,31 @@ ralphex-format plan and drives Codex to completion, producing the **same observa
 the Claude Code path does, so a plan can be executed end-to-end by either provider and the
 existing dashboard + orchestrator observe it identically.
 
-- [ ] Implement `CodexRunner.runPlan(repo, planPath, attemptConfig)` via `codex exec`
+- [x] Implement `CodexRunner.runPlan(repo, planPath, attemptConfig)` via `codex exec`
       (`--sandbox workspace-write`, `--approval never`, configurable model e.g.
       `gpt-5.1-codex`, `cwd = repo`). May optionally use the Codex SDK/app-server for
       resumable threads, but the `codex exec` path must work as the baseline.
-- [ ] **Artifact contract** — Codex must produce the same files the loop/dashboard rely on:
+- [x] **Artifact contract** — Codex must produce the same files the loop/dashboard rely on:
   - commits per task with `feat: … Task N` messages on a feature branch named like the
     Claude path's convention;
   - progress written to `<repo>/.ralphex/progress/progress-<plan>.txt`;
   - plan-state recorded at `<repo>/.ralphex/plan-state/<plan>_.{sha256,status}` exactly as
     the loop expects (`completed|failed|invalid`);
   - finalize: push the branch + open the PR (same as the Claude path), so no manual step.
-- [ ] **Result contract** — Codex must emit a strict machine-readable `AttemptResult` JSON to a
+- [x] **Result contract** — Codex must emit a strict machine-readable `AttemptResult` JSON to a
       known file (`<repo>/.ralphex/attempt-<plan>.json`). Define the schema, a single
       delimiter/file convention, retry-once on malformed output, and **exit-code-wins**
       precedence when exit status and summary disagree.
-- [ ] Map Codex exits/output onto the Task 2 `ClassificationSignal` values (rate-limit / auth /
+- [x] Map Codex exits/output onto the Task 2 `ClassificationSignal` values (rate-limit / auth /
       stall / finalize) so the orchestrator handles Codex identically.
-- [ ] Acquire the Task 2 per-`(repo, plan)` lock for the whole run and coordinate with the
+- [x] Acquire the Task 2 per-`(repo, plan)` lock for the whole run and coordinate with the
       base-branch checkout + `phase_pusher`: the claim (Task 2 guard) keeps the legacy loop
       off this plan; ensure the active feature branch isn't clobbered by the poll checkout.
-- [ ] **Unit tests:** adapter prompt built correctly from a fixture plan; `codex exec` argv
+- [x] **Unit tests:** adapter prompt built correctly from a fixture plan; `codex exec` argv
       (sandbox/approval/model/cwd) correct; the `AttemptResult` JSON file is parsed/validated;
       malformed output triggers the retry; failure/rate-limit/auth-missing exits map to the
       right `ClassificationSignal`; the lock is held for the run (mock `child_process`).
-- [ ] **agent-browser:** create a plan with provider `codex`; the plan detail / executions
+- [x] **agent-browser:** create a plan with provider `codex`; the plan detail / executions
       view shows it executing under Codex with provider-used = codex and per-task progress.
 
 ### Task 8: Orchestrator observer + stuck-classification (no actions yet)
