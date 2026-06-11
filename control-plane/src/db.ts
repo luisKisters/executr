@@ -149,6 +149,46 @@ export function listExecutions(db: OrchestratorDB): ExecutionRow[] {
   return rows.map(toExecutionRow);
 }
 
+export function getRunningExecutions(db: OrchestratorDB): ExecutionRow[] {
+  const rows = db.prepare("SELECT * FROM executions WHERE status = 'running' ORDER BY created_at DESC").all() as Record<string, unknown>[];
+  return rows.map(toExecutionRow);
+}
+
+export function updateExecutionClassification(
+  db: OrchestratorDB,
+  attemptId: string,
+  classification: ClassificationSignal,
+  latestProgressTs?: number,
+  latestTranscriptTs?: number
+): void {
+  const now = Date.now();
+  if (latestProgressTs !== undefined && latestTranscriptTs !== undefined) {
+    db.prepare(`
+      UPDATE executions
+      SET classification = ?, latest_progress_ts = ?, latest_transcript_ts = ?, updated_at = ?
+      WHERE attempt_id = ?
+    `).run(classification, latestProgressTs, latestTranscriptTs, now, attemptId);
+  } else if (latestProgressTs !== undefined) {
+    db.prepare(`
+      UPDATE executions
+      SET classification = ?, latest_progress_ts = ?, updated_at = ?
+      WHERE attempt_id = ?
+    `).run(classification, latestProgressTs, now, attemptId);
+  } else if (latestTranscriptTs !== undefined) {
+    db.prepare(`
+      UPDATE executions
+      SET classification = ?, latest_transcript_ts = ?, updated_at = ?
+      WHERE attempt_id = ?
+    `).run(classification, latestTranscriptTs, now, attemptId);
+  } else {
+    db.prepare(`
+      UPDATE executions
+      SET classification = ?, updated_at = ?
+      WHERE attempt_id = ?
+    `).run(classification, now, attemptId);
+  }
+}
+
 export function listApprovalRequests(db: OrchestratorDB): ApprovalRequestRow[] {
   const rows = db.prepare('SELECT * FROM approval_requests ORDER BY created_at DESC').all() as Record<string, unknown>[];
   return rows.map(toApprovalRequestRow);

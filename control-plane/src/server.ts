@@ -14,6 +14,7 @@ import {
   type PlanProviderInfo,
 } from './views';
 import { openDatabase, listExecutions, listApprovalRequests, type OrchestratorDB } from './db';
+import { ObserverPoller } from './observer';
 import {
   listRepos,
   listPlansForRepo,
@@ -34,9 +35,19 @@ const SESSION_VALUE = 'authenticated';
 // In-memory provider policy store (persisted across requests within a process lifetime).
 let _providerPolicy: ProviderPolicy = { ...DEFAULT_PROVIDER_POLICY };
 
-export async function createServer(config: Config, db?: OrchestratorDB): Promise<FastifyInstance> {
+export async function createServer(
+  config: Config,
+  db?: OrchestratorDB,
+  startObserver = true
+): Promise<FastifyInstance> {
   const _db = db ?? openDatabase(config.orchestratorDbPath);
   const app = Fastify({ logger: false });
+
+  const poller = new ObserverPoller(_db, { workspaceRoot: config.workspaceRoot });
+  if (startObserver) {
+    app.addHook('onReady', async () => { poller.start(); });
+    app.addHook('onClose', async () => { poller.stop(); });
+  }
 
   await app.register(cookie, {
     secret: config.sessionSecret || 'default-insecure-secret-change-me',

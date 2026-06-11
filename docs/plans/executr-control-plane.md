@@ -271,20 +271,20 @@ existing dashboard + orchestrator observe it identically.
 
 ### Task 8: Orchestrator observer + stuck-classification (no actions yet)
 
-- [ ] Observer polls every 30–60s and writes normalized statuses into the Task 2 DB **without
+- [x] Observer polls every 30–60s and writes normalized statuses into the Task 2 DB **without
       taking any action**.
-- [ ] Inputs: in-container process table; the **in-container log stream** the control-plane
+- [x] Inputs: in-container process table; the **in-container log stream** the control-plane
       can read directly (do NOT depend on host-side `docker logs`, which needs the Docker
       socket — read ralphex's own served log/SSE or the progress files instead); `.ralphex`
       progress + plan-state; Claude transcripts; Codex `attempt-<plan>.json`; git state;
       provider availability.
-- [ ] Classifier produces the Task 2 `ClassificationSignal` values. `known_startup_stall`
+- [x] Classifier produces the Task 2 `ClassificationSignal` values. `known_startup_stall`
       (no transcript after fya launch) must — per `CLAUDE.md` — be treated as self-healing
       after the 30m timeout and must **never** recommend an external kill.
-- [ ] **Unit tests:** feed fixture process tables / logs / progress / git states and assert
+- [x] **Unit tests:** feed fixture process tables / logs / progress / git states and assert
       each classification — especially that a no-transcript startup stall is
       `known_startup_stall` and is never flagged for a kill.
-- [ ] **agent-browser:** the Overview/Executions view shows the live classification per
+- [x] **agent-browser:** the Overview/Executions view shows the live classification per
       execution from the DB.
 
 ### Task 9: Safe automatic recoveries + approval gating
