@@ -198,20 +198,20 @@ server against a temp fixture `/workspace` and drives it with agent-browser.
 
 ### Task 5: Dashboard UI views
 
-- [ ] **Overview:** all repos, active plan, branch, latest commit, state, time-since-last
+- [x] **Overview:** all repos, active plan, branch, latest commit, state, time-since-last
       transcript/progress, health classification.
-- [ ] **Plans:** per-repo plan list with plan-state, content hash, created/last-run, PR/branch.
-- [ ] **Plan detail:** rendered markdown, progress-log tail, recent transcript/commit summary,
+- [x] **Plans:** per-repo plan list with plan-state, content hash, created/last-run, PR/branch.
+- [x] **Plan detail:** rendered markdown, progress-log tail, recent transcript/commit summary,
       validation + review/finalize state, selected/used provider.
-- [ ] **New plan:** repo picker, title, body, validation commands, provider selector, a
+- [x] **New plan:** repo picker, title, body, validation commands, provider selector, a
       live preview of the generated ralphex markdown, submit.
-- [ ] **Activity / Timeline:** a chronological feed of execution events, recovery actions, and
+- [x] **Activity / Timeline:** a chronological feed of execution events, recovery actions, and
       approval requests/decisions (the view Task 9 + Task 10 assert against).
-- [ ] **Sessions:** Telegram planning sessions and whether each has been converted to a plan
+- [x] **Sessions:** Telegram planning sessions and whether each has been converted to a plan
       (data lands in Task 10; view renders empty gracefully until then).
-- [ ] **Unit tests:** concrete tests for route/view-model rendering, markdown-preview
+- [x] **Unit tests:** concrete tests for route/view-model rendering, markdown-preview
       generation, time-since formatting, and health-badge mapping.
-- [ ] **agent-browser:** each of the six views loads against the fixture API and renders the
+- [x] **agent-browser:** each of the six views loads against the fixture API and renders the
       expected content; screenshots asserted.
 
 ### Task 6: Provider abstraction (Claude Code ↔ Codex) as a first-class concept
