@@ -64,6 +64,21 @@ mkdir -p "$CLAUDE_DIR"
 printf '%s' '{"theme":"dark","skipDangerousModePermissionPrompt":true}' > "$CLAUDE_DIR/settings.json"
 [ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
 
+# Global agent instruction read on EVERY turn (incl. ralphex review rounds) for
+# ALL repos: a plan isn't done until the project's CI is green. `gh` is installed
+# and authenticated, so the agent can actually check. Seeded as user-level memory
+# (~/.claude/CLAUDE.md) so it applies everywhere without touching each repo/plan.
+cat > "$CLAUDE_DIR/CLAUDE.md" <<'EOF'
+# Required for every plan: CI must pass
+
+A plan is not complete until the project's continuous-integration checks are
+green — GitHub Actions and/or Vercel, whatever that repo uses. Before finalizing,
+verify it: `gh` is installed and authenticated (`gh run list`,
+`gh run view --log-failed <run-id>`); check the Vercel deployment status when the
+repo deploys to Vercel. If any check is red, read the failing logs and fix the
+cause. Never mark work complete or open/merge a PR with failing CI.
+EOF
+
 # pre-accept onboarding + per-repo "trust this folder" so the TUI never stops on those.
 trust_repo() {  # $1 = repo working dir
   tmp="$(mktemp)" || return 0
