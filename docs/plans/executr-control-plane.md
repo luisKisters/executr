@@ -161,23 +161,23 @@ server against a temp fixture `/workspace` and drives it with agent-browser.
 
 ### Task 3: Filesystem-backed repo/plan discovery + normalized execution state (read-only API)
 
-- [ ] `GET /api/repos` — list repos under `WORKSPACE_ROOT` with current branch, latest commit,
+- [x] `GET /api/repos` — list repos under `WORKSPACE_ROOT` with current branch, latest commit,
       and active plan if any.
-- [ ] `GET /api/repos/:repo/plans` — list plans from `docs/plans/*.md` with plan-state status
+- [x] `GET /api/repos/:repo/plans` — list plans from `docs/plans/*.md` with plan-state status
       (`completed|failed|invalid|none`), content hash, created time, last run time, and
       branch/PR link if known.
-- [ ] `GET /api/repos/:repo/plans/:plan` — rendered plan markdown + progress-log tail
+- [x] `GET /api/repos/:repo/plans/:plan` — rendered plan markdown + progress-log tail
       (`.ralphex/progress`) + recent commit summary + validation/review/finalize state.
-- [ ] `GET /api/executions` — one normalized record per active execution, joined with the
+- [x] `GET /api/executions` — one normalized record per active execution, joined with the
       Task 2 DB, including the `ClassificationSignal` (the live classifier lands in Task 8;
       until then this field is `healthy`/unknown placeholder, clearly marked).
-- [ ] Plan parsing returns explicit fields: `rawTaskNumber`, `normalizedDisplayNumber`, and a
+- [x] Plan parsing returns explicit fields: `rawTaskNumber`, `normalizedDisplayNumber`, and a
       `validationWarnings[]` list — so `Task 0` / `* [ ]` plans are normalized **and** the
       mismatch is surfaced, never silently mislabeled.
-- [ ] **Unit tests:** all four endpoints against a temp fixture workspace with sample
+- [x] **Unit tests:** all four endpoints against a temp fixture workspace with sample
       repos/plans/`.ralphex` state; assert parsed fields incl. the `Task 0` / `* [ ]` edge
       cases produce the right `normalizedDisplayNumber` + warnings.
-- [ ] **agent-browser:** overview view renders the fixture repos/plans/state from the live API.
+- [x] **agent-browser:** overview view renders the fixture repos/plans/state from the live API.
 
 ### Task 4: Plan creation API — validated, atomic ralphex-format writes
 

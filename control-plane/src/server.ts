@@ -4,6 +4,12 @@ import formbody from '@fastify/formbody';
 import type { Config } from './config';
 import { renderLoginPage, renderOverviewPage } from './views';
 import { openDatabase, listExecutions, listApprovalRequests, type OrchestratorDB } from './db';
+import {
+  listRepos,
+  listPlansForRepo,
+  getPlanDetail,
+  listNormalizedExecutions,
+} from './discovery';
 
 const SESSION_COOKIE = 'cp_session';
 const SESSION_VALUE = 'authenticated';
@@ -32,6 +38,8 @@ export async function createServer(config: Config, db?: OrchestratorDB): Promise
     }
     return reply.redirect('/login');
   });
+
+  // ── Public routes ──────────────────────────────────────────────────
 
   app.get('/healthz', async (_request, reply) => {
     return reply.send({ status: 'ok' });
@@ -72,14 +80,46 @@ export async function createServer(config: Config, db?: OrchestratorDB): Promise
     return reply.redirect('/login');
   });
 
+  // ── UI routes ──────────────────────────────────────────────────────
+
   app.get('/', async (_request, reply) => {
-    return reply.type('text/html').send(renderOverviewPage());
+    const repos = listRepos(config.workspaceRoot);
+    return reply.type('text/html').send(renderOverviewPage(repos));
   });
+
+  // ── Debug / legacy ─────────────────────────────────────────────────
 
   app.get('/api/_debug/contracts', async (_request, reply) => {
     const executions = listExecutions(_db);
     const approvalRequests = listApprovalRequests(_db);
     return reply.send({ executions, approvalRequests });
+  });
+
+  // ── Task 3: read-only discovery API ───────────────────────────────
+
+  app.get('/api/repos', async (_request, reply) => {
+    const repos = listRepos(config.workspaceRoot);
+    return reply.send(repos);
+  });
+
+  app.get('/api/repos/:repo/plans', async (request, reply) => {
+    const { repo } = request.params as { repo: string };
+    const plans = listPlansForRepo(config.workspaceRoot, repo);
+    return reply.send(plans);
+  });
+
+  app.get('/api/repos/:repo/plans/:plan', async (request, reply) => {
+    const { repo, plan } = request.params as { repo: string; plan: string };
+    const detail = getPlanDetail(config.workspaceRoot, repo, plan);
+    if (!detail) {
+      return reply.status(404).send({ error: 'Plan not found' });
+    }
+    return reply.send(detail);
+  });
+
+  app.get('/api/executions', async (_request, reply) => {
+    const executions = listNormalizedExecutions(_db);
+    return reply.send(executions);
   });
 
   return app;

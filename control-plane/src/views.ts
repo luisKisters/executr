@@ -1,3 +1,5 @@
+import type { RepoInfo } from './discovery';
+
 export function renderLoginPage(error?: string): string {
   const errorHtml = error
     ? `<p class="error" role="alert">${escapeHtml(error)}</p>`
@@ -31,7 +33,31 @@ export function renderLoginPage(error?: string): string {
 </html>`;
 }
 
-export function renderOverviewPage(): string {
+export function renderOverviewPage(repos: RepoInfo[] = []): string {
+  const reposHtml = repos.length === 0
+    ? '<p class="empty">No repos found. Add repos to WORKSPACE_ROOT to see them here.</p>'
+    : `<table class="repos-table">
+        <thead>
+          <tr>
+            <th>Repo</th>
+            <th>Branch</th>
+            <th>Latest commit</th>
+            <th>Plans</th>
+            <th>Active plan</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${repos.map(r => `
+          <tr>
+            <td><a href="/api/repos/${escapeHtml(r.name)}/plans">${escapeHtml(r.name)}</a></td>
+            <td>${escapeHtml(r.currentBranch ?? '—')}</td>
+            <td class="commit">${escapeHtml(r.latestCommit ?? '—')}</td>
+            <td>${r.planCount}</td>
+            <td>${r.activePlan ? escapeHtml(r.activePlan) : '—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -47,6 +73,11 @@ export function renderOverviewPage(): string {
     main { padding: 2rem 1.5rem; }
     h2 { font-size: 1.2rem; }
     .empty { color: #888; font-size: 0.95rem; }
+    .repos-table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+    .repos-table th { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 2px solid #ddd; }
+    .repos-table td { padding: 0.4rem 0.75rem; border-bottom: 1px solid #eee; vertical-align: top; }
+    .repos-table a { color: #1a1a2e; }
+    .commit { font-family: monospace; font-size: 0.85rem; max-width: 30ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -61,7 +92,7 @@ export function renderOverviewPage(): string {
   </nav>
   <main>
     <h2>Overview</h2>
-    <p class="empty">No repos found. Add repos to WORKSPACE_ROOT to see them here.</p>
+    ${reposHtml}
   </main>
 </body>
 </html>`;
