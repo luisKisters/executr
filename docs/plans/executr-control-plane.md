@@ -384,19 +384,19 @@ DB-backed registry managed from the UI — `REPOS` survives only as an optional 
 
 ### Task 14: Make the watch loop + orchestrator read the registry, not `REPOS`
 
-- [ ] The control-plane maintains a derived, loop-readable repo list (e.g.
+- [x] The control-plane maintains a derived, loop-readable repo list (e.g.
       `${WORKSPACE_ROOT}/.executr/repos.list`, regenerated on every registry change) — or
       `entrypoint.sh` queries `GET /api/repos`. Pick the simpler robust option.
-- [ ] Rework `entrypoint.sh`: clone/iterate repos from the **registry list**, not the `REPOS`
+- [x] Rework `entrypoint.sh`: clone/iterate repos from the **registry list**, not the `REPOS`
       env. `REPOS` becomes an **optional seed only** — an empty/unset `REPOS` is fully valid
       and the system runs purely off the registry. Keep the change additive and reversible.
-- [ ] A repo added via Task 13 is picked up by the watch loop within one `POLL_SECONDS` cycle,
+- [x] A repo added via Task 13 is picked up by the watch loop within one `POLL_SECONDS` cycle,
       with **no container restart** and **no env edit**.
-- [ ] Update `docs/plans` examples, `.env.example`, and `README`/`CLAUDE.md` to state `REPOS`
+- [x] Update `docs/plans` examples, `.env.example`, and `README`/`CLAUDE.md` to state `REPOS`
       is now an optional bootstrap seed, with the UI as the primary way to manage repos.
-- [ ] **Unit/integration tests:** the loop's repo-source function reads the registry list and
+- [x] **Unit/integration tests:** the loop's repo-source function reads the registry list and
       ignores an empty `REPOS`; a newly-registered repo enters the active set without a restart.
-- [ ] **agent-browser:** end-to-end — add a repo in the UI, then confirm the loop discovers it
+- [x] **agent-browser:** end-to-end — add a repo in the UI, then confirm the loop discovers it
       (e.g. it shows an active/clonable state and the repo's plans become listable) with no
       restart.
 
