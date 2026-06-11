@@ -140,23 +140,23 @@ server against a temp fixture `/workspace` and drives it with agent-browser.
 
 ### Task 2: Shared contracts, state DB & execution ownership
 
-- [ ] Implement the SQLite store at `ORCHESTRATOR_DB_PATH` with migrations for: executions
+- [x] Implement the SQLite store at `ORCHESTRATOR_DB_PATH` with migrations for: executions
       (repo, plan file, plan hash, attempt ID, provider requested, provider used, model,
       branch/worktree, status, latest progress ts, latest transcript ts, rate-limit/cooldown,
       last recovery action) and the **approval-request** table from Shared Contracts.
-- [ ] Define and export the `AttemptResult`, `ClassificationSignal`, and `ProviderStatus`
+- [x] Define and export the `AttemptResult`, `ClassificationSignal`, and `ProviderStatus`
       types (single source of truth consumed by Tasks 6–10).
-- [ ] Implement the **plan claim / lease** API (claim, renew, release, read) backed by
+- [x] Implement the **plan claim / lease** API (claim, renew, release, read) backed by
       `CLAIMS_DIR`, plus the per-`(repo, plan)` lock.
-- [ ] Add the **additive guard to `entrypoint.sh`**: before running a plan, skip it if an
+- [x] Add the **additive guard to `entrypoint.sh`**: before running a plan, skip it if an
       active claim names a non-`claude-code` provider. Must be a no-op for unclaimed/default
       plans (the loop running THIS plan must keep working). Keep the change minimal and
       reversible.
-- [ ] **Unit tests:** migrations create the schema; claim lease expiry + lock mutual exclusion
+- [x] **Unit tests:** migrations create the schema; claim lease expiry + lock mutual exclusion
       behave correctly; the entrypoint-guard decision function returns skip only for active
       non-claude claims and run/observe for everything else (cover unclaimed, expired-claim,
       claude-claim, codex-claim).
-- [ ] **agent-browser:** an internal `/api/_debug/contracts` (or the overview) renders a
+- [x] **agent-browser:** an internal `/api/_debug/contracts` (or the overview) renders a
       seeded execution + a pending approval row from the DB, proving the store is live.
 
 ### Task 3: Filesystem-backed repo/plan discovery + normalized execution state (read-only API)

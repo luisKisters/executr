@@ -106,6 +106,30 @@ has_executable_sections() {
   grep -Eq '^### (Task|Iteration) [0-9]+:' "$1"
 }
 
+# Additive guard: skip a plan if the control-plane has claimed it for a
+# non-claude-code provider.  Unclaimed plans, expired leases, and explicit
+# claude-code claims all return "run" so the loop is unaffected by default.
+# Reads: CLAIMS_DIR (env, defaults to /workspace/.executr/claims)
+# Args: $1 = repo name, $2 = plan content hash (sha256)
+control_plane_claim_decision() {
+  _repo="$1"; _hash="$2"
+  _cdir="${CLAIMS_DIR:-/workspace/.executr/claims}"
+  _safe_repo="$(printf '%s' "$_repo" | tr -c 'A-Za-z0-9._-' '_')"
+  _claim_file="$_cdir/${_safe_repo}__${_hash}.json"
+  [ -f "$_claim_file" ] || { printf 'run'; return; }
+  # parse leaseUntil and provider with jq (available in the image)
+  _provider="$(jq -r '.provider // empty' "$_claim_file" 2>/dev/null)"
+  _lease="$(jq -r '.leaseUntil // 0' "$_claim_file" 2>/dev/null)"
+  _now="$(date +%s)000"   # milliseconds
+  [ -n "$_provider" ] && [ -n "$_lease" ] || { printf 'run'; return; }
+  # expired lease -> run
+  [ "$_lease" -gt "$_now" ] 2>/dev/null || { printf 'run'; return; }
+  # active claude-code claim -> run (control-plane uses same legacy path)
+  [ "$_provider" = "claude-code" ] && { printf 'run'; return; }
+  # active non-claude-code claim -> skip (control-plane will run this)
+  printf 'skip'
+}
+
 # map a plan path to its state-file stem under the repo's plan-state dir
 plan_state_file() {
   printf '%s/%s' "$1" "$(basename "$2" | tr -c 'A-Za-z0-9._-' '_')"
@@ -193,6 +217,13 @@ while true; do
       if ! has_executable_sections "$plan"; then
         echo "executr: [$NAME] skipping non-executable plan $(basename "$plan") (no '### Task N:' / '### Iteration N:')"
         record_plan_state "$STATE_DIR" "$plan" "$digest" invalid
+        continue
+      fi
+
+      # Additive guard: if the control-plane has claimed this plan for a
+      # non-claude-code provider, skip it here — the control-plane runs it.
+      if [ "$(control_plane_claim_decision "$NAME" "$digest")" = "skip" ]; then
+        echo "executr: [$NAME] skipping $(basename "$plan") — claimed by control-plane (non-claude-code provider)"
         continue
       fi
 

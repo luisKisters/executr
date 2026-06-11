@@ -3,11 +3,13 @@ import cookie from '@fastify/cookie';
 import formbody from '@fastify/formbody';
 import type { Config } from './config';
 import { renderLoginPage, renderOverviewPage } from './views';
+import { openDatabase, listExecutions, listApprovalRequests, type OrchestratorDB } from './db';
 
 const SESSION_COOKIE = 'cp_session';
 const SESSION_VALUE = 'authenticated';
 
-export async function createServer(config: Config): Promise<FastifyInstance> {
+export async function createServer(config: Config, db?: OrchestratorDB): Promise<FastifyInstance> {
+  const _db = db ?? openDatabase(config.orchestratorDbPath);
   const app = Fastify({ logger: false });
 
   await app.register(cookie, {
@@ -72,6 +74,12 @@ export async function createServer(config: Config): Promise<FastifyInstance> {
 
   app.get('/', async (_request, reply) => {
     return reply.type('text/html').send(renderOverviewPage());
+  });
+
+  app.get('/api/_debug/contracts', async (_request, reply) => {
+    const executions = listExecutions(_db);
+    const approvalRequests = listApprovalRequests(_db);
+    return reply.send({ executions, approvalRequests });
   });
 
   return app;
