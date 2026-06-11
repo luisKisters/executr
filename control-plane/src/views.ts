@@ -1,6 +1,12 @@
 import type { RepoInfo, PlanSummary, PlanDetail, NormalizedExecution } from './discovery';
-import type { ClassificationSignal } from './contracts';
+import type { ClassificationSignal, ProviderName } from './contracts';
 import type { ApprovalRequestRow } from './db';
+
+export interface PlanProviderInfo {
+  claimedProvider: ProviderName | null;
+  usedProvider: ProviderName | null;
+  requestedProvider: ProviderName | null;
+}
 
 // ── Time formatting ────────────────────────────────────────────────────
 
@@ -255,7 +261,11 @@ function statusBadgeClass(status: string): string {
 
 // ── Plan detail ────────────────────────────────────────────────────────
 
-export function renderPlanDetailPage(detail: PlanDetail, repoName: string): string {
+export function renderPlanDetailPage(
+  detail: PlanDetail,
+  repoName: string,
+  providerInfo?: PlanProviderInfo
+): string {
   const taskRows = detail.tasks.map(t => {
     const pct = t.totalCount > 0 ? Math.round((t.completedCount / t.totalCount) * 100) : 0;
     const done = t.completedCount === t.totalCount && t.totalCount > 0;
@@ -303,6 +313,7 @@ export function renderPlanDetailPage(detail: PlanDetail, repoName: string): stri
       <dt>Branch</dt><dd>${detail.branch ? escapeHtml(detail.branch) : '—'}</dd>
       <dt>Hash</dt><dd class="hash">${detail.contentHash ? escapeHtml(detail.contentHash.slice(0, 12)) : '—'}</dd>
       <dt>Validation</dt><dd><span class="badge ${validationBadgeClass(detail.validationState)}">${escapeHtml(detail.validationState)}</span></dd>
+      <dt>Provider</dt><dd>${renderProviderInfo(providerInfo)}</dd>
     </dl>
     <h3>Tasks</h3>
     ${tasksHtml}
@@ -312,6 +323,26 @@ export function renderPlanDetailPage(detail: PlanDetail, repoName: string): stri
     ${progressHtml}
     <h3>Plan source</h3>
     <pre class="raw-md">${escapeHtml(detail.rawMarkdown)}</pre>`);
+}
+
+function renderProviderInfo(info?: PlanProviderInfo): string {
+  if (!info) return '—';
+  const used = info.usedProvider;
+  const claimed = info.claimedProvider;
+  const requested = info.requestedProvider;
+  if (used) {
+    const label = requested && requested !== used
+      ? `${escapeHtml(used)} (requested: ${escapeHtml(requested)})`
+      : escapeHtml(used);
+    return `<span class="badge badge-green">${label}</span>`;
+  }
+  if (claimed) {
+    return `<span class="badge badge-blue">${escapeHtml(claimed)} (claimed)</span>`;
+  }
+  if (requested) {
+    return `<span class="badge badge-grey">${escapeHtml(requested)} (requested)</span>`;
+  }
+  return '<span class="badge badge-grey">claude-code</span>';
 }
 
 function validationBadgeClass(state: string): string {

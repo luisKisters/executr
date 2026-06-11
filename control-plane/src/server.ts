@@ -11,6 +11,7 @@ import {
   renderPlanDetailPage,
   renderActivityPage,
   renderSessionsPage,
+  type PlanProviderInfo,
 } from './views';
 import { openDatabase, listExecutions, listApprovalRequests, type OrchestratorDB } from './db';
 import {
@@ -19,10 +20,19 @@ import {
   getPlanDetail,
   listNormalizedExecutions,
 } from './discovery';
-import { createPlan, type PlanProvider } from './planCreation';
+import { createPlan, hashContent, type PlanProvider } from './planCreation';
+import { readClaim, isActiveClaim } from './claims';
+import {
+  DEFAULT_PROVIDER_POLICY,
+  type ProviderPolicy,
+  type ProviderSwitchTrigger,
+} from './providers';
 
 const SESSION_COOKIE = 'cp_session';
 const SESSION_VALUE = 'authenticated';
+
+// In-memory provider policy store (persisted across requests within a process lifetime).
+let _providerPolicy: ProviderPolicy = { ...DEFAULT_PROVIDER_POLICY };
 
 export async function createServer(config: Config, db?: OrchestratorDB): Promise<FastifyInstance> {
   const _db = db ?? openDatabase(config.orchestratorDbPath);
@@ -124,7 +134,31 @@ export async function createServer(config: Config, db?: OrchestratorDB): Promise
         page404(`Plan "${plan}" not found in repo "${repo}"`)
       );
     }
-    return reply.type('text/html').send(renderPlanDetailPage(detail, repo));
+
+    const providerInfo: PlanProviderInfo = {
+      claimedProvider: null,
+      usedProvider: null,
+      requestedProvider: null,
+    };
+
+    // Use the hash from plan-state if available; fall back to hashing the raw markdown
+    // so newly-created plans (not yet run) can still resolve their claim.
+    const hashForClaim = detail.contentHash ?? hashContent(detail.rawMarkdown);
+    const claim = readClaim(config.claimsDir, repo, hashForClaim);
+    if (claim && isActiveClaim(claim)) {
+      providerInfo.claimedProvider = claim.provider;
+    }
+
+    const executions = listNormalizedExecutions(_db).filter(
+      e => e.repo === repo && e.planFile === `${plan}.md`
+    );
+    const latest = executions[0] ?? null;
+    if (latest) {
+      providerInfo.usedProvider = latest.providerUsed;
+      providerInfo.requestedProvider = latest.providerRequested;
+    }
+
+    return reply.type('text/html').send(renderPlanDetailPage(detail, repo, providerInfo));
   });
 
   app.get('/plans/new', async (_request, reply) => {
@@ -207,6 +241,49 @@ export async function createServer(config: Config, db?: OrchestratorDB): Promise
   app.get('/api/executions', async (_request, reply) => {
     const executions = listNormalizedExecutions(_db);
     return reply.send(executions);
+  });
+
+  // ── Task 6: provider policy API ───────────────────────────────────────
+
+  app.get('/api/provider-policy', async (_request, reply) => {
+    return reply.send(_providerPolicy);
+  });
+
+  app.put('/api/provider-policy', async (request, reply) => {
+    const body = request.body as Partial<ProviderPolicy> | null;
+    if (!body || typeof body !== 'object') {
+      return reply.status(400).send({ error: 'Body must be a JSON object' });
+    }
+
+    const allowed: ProviderPolicy['prefer'][] = ['claude-code', 'codex'];
+
+    if (body.prefer !== undefined) {
+      if (!allowed.includes(body.prefer)) {
+        return reply.status(400).send({ error: 'prefer must be "claude-code" or "codex"' });
+      }
+      _providerPolicy = { ..._providerPolicy, prefer: body.prefer };
+    }
+
+    if (body.fallback_order !== undefined) {
+      if (!Array.isArray(body.fallback_order) || body.fallback_order.some(p => !allowed.includes(p))) {
+        return reply.status(400).send({ error: 'fallback_order must be an array of valid provider names' });
+      }
+      _providerPolicy = { ..._providerPolicy, fallback_order: body.fallback_order };
+    }
+
+    if (body.switch_on !== undefined) {
+      const validTriggers: ProviderSwitchTrigger[] = [
+        'provider_rate_limited', 'provider_auth_unavailable',
+        'startup_stall_repeated', 'transient_timeout_repeated',
+      ];
+      const keys = Object.keys(body.switch_on);
+      if (keys.some(k => !validTriggers.includes(k as ProviderSwitchTrigger))) {
+        return reply.status(400).send({ error: 'switch_on contains unknown trigger keys' });
+      }
+      _providerPolicy = { ..._providerPolicy, switch_on: { ..._providerPolicy.switch_on, ...body.switch_on } };
+    }
+
+    return reply.send(_providerPolicy);
   });
 
   // ── Task 4: plan creation API ─────────────────────────────────────────

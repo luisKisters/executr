@@ -216,23 +216,23 @@ server against a temp fixture `/workspace` and drives it with agent-browser.
 
 ### Task 6: Provider abstraction (Claude Code ↔ Codex) as a first-class concept
 
-- [ ] Define `AgentRunner`: `runPlan(repo, planPath, attemptConfig) -> AttemptResult`,
+- [x] Define `AgentRunner`: `runPlan(repo, planPath, attemptConfig) -> AttemptResult`,
       `inspect(repo, question, mode) -> InspectionResult`,
       `draftPlan(session, repo) -> DraftPlanResult` (used by Telegram `/plan`),
       `availability() -> ProviderStatus`. Returns/consumes the Task 2 contract types.
-- [ ] `ClaudeCodeRunner` wraps the current ralphex + `fya-wrapper.sh`/Claude Code path; its
+- [x] `ClaudeCodeRunner` wraps the current ralphex + `fya-wrapper.sh`/Claude Code path; its
       `runPlan` is the existing behavior, surfaced through the interface.
-- [ ] `CodexRunner.inspect` uses `codex exec` (non-interactive, read-only or workspace-write
+- [x] `CodexRunner.inspect` uses `codex exec` (non-interactive, read-only or workspace-write
       mode) for rescue/inspection. (Full `CodexRunner.runPlan` is Task 7.)
-- [ ] Provider selection plumbed through the API/UI: `auto | claude-code | codex`, stored per
+- [x] Provider selection plumbed through the API/UI: `auto | claude-code | codex`, stored per
       plan/attempt; **provider used recorded for every attempt** in the Task 2 DB.
-- [ ] Provider selection policy: `auto` config with `prefer` + `fallback_order` and
+- [x] Provider selection policy: `auto` config with `prefer` + `fallback_order` and
       `switch_on` triggers (`provider_rate_limited`, `provider_auth_unavailable`,
       `startup_stall_repeated`, `transient_timeout_repeated`). Surfaced/editable in the UI.
-- [ ] **Unit tests:** runner dispatch picks the right implementation; `codex exec` / fya argv
+- [x] **Unit tests:** runner dispatch picks the right implementation; `codex exec` / fya argv
       built correctly (mock `child_process`); `availability()` reflects missing auth; `auto`
       policy picks prefer/fallback per trigger; `draftPlan` returns valid ralphex markdown.
-- [ ] **agent-browser:** provider selector in the New-plan form persists the choice and the
+- [x] **agent-browser:** provider selector in the New-plan form persists the choice and the
       plan detail view shows the selected/used provider.
 
 ### Task 7: Codex as a full plan executor (`CodexRunner.runPlan`)
