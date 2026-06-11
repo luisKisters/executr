@@ -25,6 +25,22 @@ if [ -z "$REPOS" ]; then
 fi
 REPO_LIST="$(echo "$REPOS" | tr ',' ' ')"
 
+# Path to the registry-backed list maintained by the control-plane.
+# Format: one "name=URL#branch" line per entry.
+# get_repo_list(): returns a space-separated entry string for use in `for` loops.
+# Prefers the registry file (updated by the control-plane on every registry change)
+# so newly-added repos are picked up within one POLL_SECONDS cycle.
+# Falls back to REPO_LIST when the file doesn't exist yet (first boot, before the
+# control-plane has started for the first time).
+REPOS_LIST_FILE="/workspace/.executr/repos.list"
+get_repo_list() {
+  if [ -s "$REPOS_LIST_FILE" ]; then
+    grep -v '^#' "$REPOS_LIST_FILE" | grep -v '^[[:space:]]*$' | tr '\n' ' '
+  else
+    printf '%s' "$REPO_LIST"
+  fi
+}
+
 git config --global user.name  "${GIT_AUTHOR_NAME:-executr bot}"
 git config --global user.email "${GIT_AUTHOR_EMAIL:-you@example.com}"
 git config --global credential.helper store
@@ -201,7 +217,7 @@ ralphex --serve --host "${RALPHEX_WEB_HOST:-0.0.0.0}" --port "${RALPHEX_PORT:-80
 # Runs in a forked subshell, so it can't clobber the main loop's parse_entry globals.
 phase_pusher() {
   while true; do
-    for entry in $REPO_LIST; do
+    for entry in $(get_repo_list); do
       parse_entry "$entry"
       [ -d "$DIR/.git" ] || continue
       ( cd "$DIR"
@@ -216,7 +232,7 @@ phase_pusher &
 
 echo "executr: watching plans across: $REPOS"
 while true; do
-  for entry in $REPO_LIST; do
+  for entry in $(get_repo_list); do
     parse_entry "$entry"
     [ -d "$DIR" ] || continue
     # refresh from origin each poll so plans/code pushed to the repo are picked up

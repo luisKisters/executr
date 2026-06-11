@@ -23,12 +23,14 @@ It wraps [umputun/ralphex](https://github.com/umputun/ralphex) (the "extended Ra
 
 A long-running worker container:
 
-1. Clones **every repo in `REPOS`** (comma-separated) into a persistent volume on first boot, `pnpm install`s each.
-2. Serves the ralphex **dashboard** on `:8080` (Coolify maps a domain).
-3. Every poll it **fetches + `git pull --ff-only`** each repo's base branch, so plans/code pushed to the repo are picked up without a restart and each run starts from the latest base.
-4. **Watches each repo's `docs/plans/*.md`** — drop (or push) a plan in and it executes **once per file content**: implement → validate → agent-browser check → commit → review → open PR.
+1. Clones bootstrap repos from `REPOS` (optional seed) into a persistent volume on first boot, `pnpm install`s each.
+2. Starts the **control-plane** on `:8090` — seeds the repo registry from `REPOS`, then writes `/workspace/.executr/repos.list` (the loop-readable source of truth for which repos to watch).
+3. Serves the ralphex **dashboard** on `:8080` (Coolify maps a domain).
+4. Every poll it reads `repos.list`, **fetches + `git pull --ff-only`** each repo's base branch, and **watches each repo's `docs/plans/*.md`** — plans execute **once per file content**: implement → validate → agent-browser check → commit → review → open PR.
 
-`REPOS` entries are `name=URL[#branch]` or just `URL`, e.g.
+**Repos are managed from the control-plane UI** (`:8090`) — add or archive repos live, with no env edit or container restart needed. `REPOS` is now an optional bootstrap seed: use it to pre-register repos on first boot, or leave it unset and add repos via the UI.
+
+`REPOS` entries (when used) are `name=URL[#branch]` or just `URL`, e.g.
 `REPOS="app=https://github.com/your-org/your-repo.git#main,api=https://github.com/your-org/api.git"`.
 Each repo is cloned to `/workspace/<name>/` and runs independently. **The image is generic** — per-repo behavior (dev-server URL, the agent-browser check, whether to open a PR) lives in **each repo's own `.ralphex/` config**, so commit an `.ralphex/` into every target repo.
 
@@ -67,7 +69,7 @@ claude setup-token            # -> CLAUDE_CODE_OAUTH_TOKEN   (VERIFY this keeps 
    - Never use *Empty Docker Compose* with `build: .` — no Dockerfile in context, so it fails with `open Dockerfile: no such file or directory` (the original error).
 2. **Environment Variables** — set these (secrets where sensitive); see [`.env.example`](./.env.example):
    - `CLAUDE_CODE_OAUTH_TOKEN`, `GITHUB_TOKEN` (required)
-   - `REPOS` — comma-separated repos, `name=URL[#branch]` (falls back to `REPO_URL`/`REPO_BRANCH` if unset)
+   - `REPOS` — optional bootstrap seed, comma-separated `name=URL[#branch]` (repos are managed via the control-plane UI after first boot; falls back to `REPO_URL`/`REPO_BRANCH` if unset)
    - `EXTERNAL_REVIEW` (`none` default; set `codex` + `OPENAI_API_KEY` to enable cross-model review)
    - `GIT_AUTHOR_NAME` / `GIT_AUTHOR_EMAIL`
    - optional: `GROQ_API_KEY`, `TELEGRAM_BOT_TOKEN`, `RALPHEX_WEB_HOST` (dashboard bind address; defaults to `0.0.0.0` so Coolify's proxy can reach it)

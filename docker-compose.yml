@@ -15,9 +15,10 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY:-}                        # for the (future) voice ask-human
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}            # ralphex notifications
       # --- behavior ---
-      # Repos to operate on (comma-separated): "name=URL[#branch]" or "URL".
-      # Multiple: REPOS="app=https://github.com/your-org/your-repo.git#main,api=https://github.com/your-org/api.git"
-      REPOS: ${REPOS:-https://github.com/your-org/your-repo.git#main}
+      # Bootstrap repos — optional seed (comma-separated): "name=URL[#branch]" or "URL".
+      # After first boot, manage repos from the control-plane UI; REPOS is only used to
+      # seed the registry on startup. Leave unset once repos are managed via the UI.
+      REPOS: ${REPOS:-}
       EXTERNAL_REVIEW: ${EXTERNAL_REVIEW:-none}              # flip to 'codex' once codex auth is set up
       GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-executr bot}
       GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-you@example.com}

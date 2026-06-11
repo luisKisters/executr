@@ -28,6 +28,7 @@ import {
 import { createPlan, hashContent, type PlanProvider } from './planCreation';
 import { readClaim, isActiveClaim } from './claims';
 import { addRepo, archiveRepo } from './repoManager';
+import { writeReposListFile } from './reposList';
 import {
   DEFAULT_PROVIDER_POLICY,
   type ProviderPolicy,
@@ -47,6 +48,8 @@ export async function createServer(
 ): Promise<FastifyInstance> {
   const _db = db ?? openDatabase(config.orchestratorDbPath);
   seedReposRegistry(_db, config.reposEnv);
+  // Write the loop-readable repos.list so the watch loop picks up the seeded registry.
+  try { writeReposListFile(_db, config.workspaceRoot); } catch { /* non-fatal */ }
   const app = Fastify({ logger: false });
 
   const poller = new ObserverPoller(_db, { workspaceRoot: config.workspaceRoot });
@@ -374,6 +377,7 @@ export async function createServer(
     if (!result.ok) {
       return reply.redirect(`/?error=${encodeURIComponent(result.error)}`);
     }
+    try { writeReposListFile(_db, config.workspaceRoot); } catch { /* non-fatal */ }
     return reply.redirect(`/?added=${encodeURIComponent((form?.name ?? '').trim())}`);
   });
 
@@ -383,6 +387,7 @@ export async function createServer(
     if (!result.ok) {
       return reply.redirect(`/?error=${encodeURIComponent(result.error)}`);
     }
+    try { writeReposListFile(_db, config.workspaceRoot); } catch { /* non-fatal */ }
     return reply.redirect(`/?archived=${encodeURIComponent(repo)}`);
   });
 
@@ -398,6 +403,7 @@ export async function createServer(
     if (!result.ok) {
       return reply.status(result.statusCode).send({ error: result.error });
     }
+    try { writeReposListFile(_db, config.workspaceRoot); } catch { /* non-fatal */ }
     return reply.status(result.alreadyExisted ? 200 : 201).send({
       name: (body?.name ?? '').trim(),
       alreadyExisted: result.alreadyExisted,
@@ -413,6 +419,7 @@ export async function createServer(
         ...(result.hasUncommittedWork ? { hasUncommittedWork: true } : {}),
       });
     }
+    try { writeReposListFile(_db, config.workspaceRoot); } catch { /* non-fatal */ }
     return reply.send({ archived: true, name: repo });
   });
 
