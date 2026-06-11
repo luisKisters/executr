@@ -124,6 +124,7 @@ beforeAll(async () => {
       WORKSPACE_ROOT: workspaceRoot,
       ORCHESTRATOR_DB_PATH: dbPath,
       HOST: '127.0.0.1',
+      REPOS: 'observedrepo=https://github.com/x/observedrepo.git#main',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

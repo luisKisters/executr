@@ -106,6 +106,7 @@ beforeAll(async () => {
       SESSION_SECRET: 'e2e-dashboard-session-secret-32ch!',
       WORKSPACE_ROOT: workspaceRoot,
       HOST: '127.0.0.1',
+      REPOS: 'dashrepo=https://github.com/x/dashrepo.git#main',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

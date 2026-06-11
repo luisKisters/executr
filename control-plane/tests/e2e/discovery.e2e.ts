@@ -90,6 +90,7 @@ beforeAll(async () => {
       SESSION_SECRET: 'e2e-discovery-session-secret-long-enough',
       WORKSPACE_ROOT: workspaceRoot,
       HOST: '127.0.0.1',
+      REPOS: 'samplerepo=https://github.com/x/samplerepo.git#main',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

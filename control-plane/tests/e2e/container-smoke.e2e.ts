@@ -71,6 +71,7 @@ beforeAll(async () => {
       WORKSPACE_ROOT: workspaceRoot,
       HOST: '127.0.0.1',
       TELEGRAM_ALLOWLIST: '123456',
+      REPOS: 'smokerepo=https://github.com/x/smokerepo.git#main',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

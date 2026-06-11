@@ -14,12 +14,13 @@ import {
   type PlanProviderInfo,
   type SessionRow,
 } from './views';
-import { openDatabase, listExecutions, listApprovalRequests, updateApprovalRequestStatus, listTelegramSessions, type OrchestratorDB } from './db';
+import { openDatabase, listExecutions, listApprovalRequests, updateApprovalRequestStatus, listTelegramSessions, seedReposRegistry, type OrchestratorDB } from './db';
 import { ObserverPoller } from './observer';
 import { RecoveryPoller } from './recovery';
 import { TelegramBot } from './telegram';
 import {
   listRepos,
+  listReposFromRegistry,
   listPlansForRepo,
   getPlanDetail,
   listNormalizedExecutions,
@@ -44,6 +45,7 @@ export async function createServer(
   startObserver = true
 ): Promise<FastifyInstance> {
   const _db = db ?? openDatabase(config.orchestratorDbPath);
+  seedReposRegistry(_db, config.reposEnv);
   const app = Fastify({ logger: false });
 
   const poller = new ObserverPoller(_db, { workspaceRoot: config.workspaceRoot });
@@ -135,7 +137,7 @@ export async function createServer(
   // ── UI routes ──────────────────────────────────────────────────────
 
   app.get('/', async (_request, reply) => {
-    const repos = listRepos(config.workspaceRoot);
+    const repos = listReposFromRegistry(_db, config.workspaceRoot);
     const executions = listNormalizedExecutions(_db);
     return reply.type('text/html').send(renderOverviewPage(repos, executions));
   });
@@ -264,7 +266,7 @@ export async function createServer(
   // ── Task 3: read-only discovery API ───────────────────────────────
 
   app.get('/api/repos', async (_request, reply) => {
-    const repos = listRepos(config.workspaceRoot);
+    const repos = listReposFromRegistry(_db, config.workspaceRoot);
     return reply.send(repos);
   });
 

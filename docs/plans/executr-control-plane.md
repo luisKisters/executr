@@ -355,16 +355,16 @@ existing dashboard + orchestrator observe it identically.
 Goal: **free executr from the `REPOS` env var.** Which repos executr operates on becomes a
 DB-backed registry managed from the UI — `REPOS` survives only as an optional first-boot seed.
 
-- [ ] Add a `repos` table to the Task 2 SQLite DB: `name`, `git_url`, `branch`, `source`
+- [x] Add a `repos` table to the Task 2 SQLite DB: `name`, `git_url`, `branch`, `source`
       (`seed | manual`), `status` (`active | archived`), `added_at`, `last_cloned_at`.
-- [ ] On first boot, **seed the registry from the `REPOS` env** (parse the existing
+- [x] On first boot, **seed the registry from the `REPOS` env** (parse the existing
       `name=URL[#branch]` / `URL[#branch]` format) so current repos migrate automatically.
       Idempotent: re-seeding never duplicates or clobbers manually-added repos.
-- [ ] Expose the registry read API: `GET /api/repos` now returns registry entries joined with
+- [x] Expose the registry read API: `GET /api/repos` now returns registry entries joined with
       filesystem/clone state (cloned?, current branch, plan counts).
-- [ ] **Unit tests:** migration creates the table; REPOS seeding parses all entry formats and
+- [x] **Unit tests:** migration creates the table; REPOS seeding parses all entry formats and
       is idempotent; archived repos are excluded from the active set.
-- [ ] **agent-browser:** the Overview view lists the registry repos (seeded set) with their
+- [x] **agent-browser:** the Overview view lists the registry repos (seeded set) with their
       clone/branch state.
 
 ### Task 13: Add / remove repos from the UI + API (live clone, no container restart)

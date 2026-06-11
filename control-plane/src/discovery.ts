@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import type { ClassificationSignal, ProviderName, AttemptStatus } from './contracts';
 import type { OrchestratorDB } from './db';
-import { listExecutions as dbListExecutions } from './db';
+import { listExecutions as dbListExecutions, listActiveRegistryRepos } from './db';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -33,6 +33,14 @@ export interface RepoInfo {
   latestCommit: string | null;
   activePlan: string | null;
   planCount: number;
+}
+
+export interface RegistryRepoInfo extends RepoInfo {
+  gitUrl: string;
+  registryBranch: string;
+  source: 'seed' | 'manual';
+  registryStatus: 'active' | 'archived';
+  cloned: boolean;
 }
 
 export interface PlanDetail extends PlanSummary {
@@ -345,6 +353,58 @@ export function getPlanDetail(
     recentCommits,
     validationState,
   };
+}
+
+export function listReposFromRegistry(db: OrchestratorDB, workspaceRoot: string): RegistryRepoInfo[] {
+  const registryRepos = listActiveRegistryRepos(db);
+  return registryRepos.map(reg => {
+    const repoPath = join(workspaceRoot, reg.name);
+    const cloned = existsSync(join(repoPath, '.git'));
+
+    if (!cloned) {
+      return {
+        name: reg.name,
+        currentBranch: null,
+        latestCommit: null,
+        activePlan: null,
+        planCount: 0,
+        gitUrl: reg.gitUrl,
+        registryBranch: reg.branch,
+        source: reg.source,
+        registryStatus: reg.status,
+        cloned: false,
+      };
+    }
+
+    const plansDir = join(repoPath, 'docs', 'plans');
+    let planCount = 0;
+    let activePlan: string | null = null;
+    try {
+      const planFiles = readdirSync(plansDir).filter(f => f.endsWith('.md'));
+      planCount = planFiles.length;
+      for (const file of planFiles) {
+        const planName = file.replace(/\.md$/, '');
+        const { status } = getPlanState(repoPath, planName);
+        if (status === 'none') {
+          activePlan = planName;
+          break;
+        }
+      }
+    } catch { /* no plans dir */ }
+
+    return {
+      name: reg.name,
+      currentBranch: getGitBranch(repoPath),
+      latestCommit: getGitLatestCommit(repoPath),
+      activePlan,
+      planCount,
+      gitUrl: reg.gitUrl,
+      registryBranch: reg.branch,
+      source: reg.source,
+      registryStatus: reg.status,
+      cloned: true,
+    };
+  });
 }
 
 export function listNormalizedExecutions(db: OrchestratorDB): NormalizedExecution[] {

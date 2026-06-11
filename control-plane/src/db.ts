@@ -131,6 +131,22 @@ function runMigrations(db: DatabaseSync): void {
       INSERT INTO schema_version (version) VALUES (3)
     `);
   }
+
+  if (currentVersion < 4) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS repos (
+        name TEXT PRIMARY KEY,
+        git_url TEXT NOT NULL,
+        branch TEXT NOT NULL DEFAULT 'main',
+        source TEXT NOT NULL DEFAULT 'seed',
+        status TEXT NOT NULL DEFAULT 'active',
+        added_at INTEGER NOT NULL,
+        last_cloned_at INTEGER
+      );
+
+      INSERT INTO schema_version (version) VALUES (4)
+    `);
+  }
 }
 
 export function insertExecution(
@@ -446,4 +462,85 @@ export function upsertKnownUser(db: OrchestratorDB, userId: number, chatId: numb
 export function getKnownUserChatIds(db: OrchestratorDB): number[] {
   const rows = db.prepare('SELECT chat_id FROM telegram_known_users').all() as { chat_id: number }[];
   return rows.map(r => r.chat_id);
+}
+
+// ── Repo registry ────────────────────────────────────────────────────────
+
+export interface RepoRegistryRow {
+  name: string;
+  gitUrl: string;
+  branch: string;
+  source: 'seed' | 'manual';
+  status: 'active' | 'archived';
+  addedAt: number;
+  lastClonedAt: number | null;
+}
+
+export interface ReposEnvEntry {
+  name: string;
+  gitUrl: string;
+  branch: string;
+}
+
+export function parseReposEnv(raw: string | undefined | null): ReposEnvEntry[] {
+  if (!raw?.trim()) return [];
+  return raw
+    .split(',')
+    .map(e => e.trim())
+    .filter(Boolean)
+    .map(e => {
+      let name = '';
+      let rest = e;
+      if (e.includes('=')) {
+        const idx = e.indexOf('=');
+        name = e.slice(0, idx).trim();
+        rest = e.slice(idx + 1).trim();
+      }
+      let gitUrl = rest;
+      let branch = 'main';
+      const hashIdx = rest.lastIndexOf('#');
+      if (hashIdx > 0) {
+        gitUrl = rest.slice(0, hashIdx);
+        branch = rest.slice(hashIdx + 1);
+      }
+      if (!name) {
+        const base = gitUrl.split('/').pop() ?? gitUrl;
+        name = base.replace(/\.git$/, '');
+      }
+      return { name, gitUrl, branch };
+    })
+    .filter(e => e.name && e.gitUrl);
+}
+
+export function seedReposRegistry(db: OrchestratorDB, reposEnv: string | undefined | null): void {
+  const entries = parseReposEnv(reposEnv);
+  const now = Date.now();
+  for (const entry of entries) {
+    db.prepare(`
+      INSERT OR IGNORE INTO repos (name, git_url, branch, source, status, added_at)
+      VALUES (?, ?, ?, 'seed', 'active', ?)
+    `).run(entry.name, entry.gitUrl, entry.branch, now);
+  }
+}
+
+export function listActiveRegistryRepos(db: OrchestratorDB): RepoRegistryRow[] {
+  const rows = db.prepare("SELECT * FROM repos WHERE status = 'active' ORDER BY added_at ASC").all() as Record<string, unknown>[];
+  return rows.map(toRepoRegistryRow);
+}
+
+export function listAllRegistryRepos(db: OrchestratorDB): RepoRegistryRow[] {
+  const rows = db.prepare('SELECT * FROM repos ORDER BY added_at ASC').all() as Record<string, unknown>[];
+  return rows.map(toRepoRegistryRow);
+}
+
+function toRepoRegistryRow(r: Record<string, unknown>): RepoRegistryRow {
+  return {
+    name: r['name'] as string,
+    gitUrl: r['git_url'] as string,
+    branch: r['branch'] as string,
+    source: r['source'] as 'seed' | 'manual',
+    status: r['status'] as 'active' | 'archived',
+    addedAt: r['added_at'] as number,
+    lastClonedAt: (r['last_cloned_at'] as number | null) ?? null,
+  };
 }

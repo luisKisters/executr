@@ -8,6 +8,7 @@ export interface Config {
   host: string;
   telegramBotToken: string;
   telegramAllowlist: number[];
+  reposEnv?: string;
 }
 
 export function parseTelegramAllowlist(raw: string | undefined): number[] {
@@ -31,9 +32,10 @@ export function loadConfig(): Config {
   const host = process.env.HOST ?? '0.0.0.0';
   const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN ?? '';
   const telegramAllowlist = parseTelegramAllowlist(process.env.TELEGRAM_ALLOWLIST);
+  const reposEnv = process.env.REPOS ?? '';
 
   return {
     workspaceRoot, orchestratorDbPath, claimsDir, password, sessionSecret,
-    port, host, telegramBotToken, telegramAllowlist,
+    port, host, telegramBotToken, telegramAllowlist, reposEnv,
   };
 }

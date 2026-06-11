@@ -336,6 +336,8 @@ describe('GET /api/repos', () => {
       sessionSecret: 'test-session-secret-32chars-padded!',
       port: 0,
       host: '127.0.0.1',
+      // Seed the registry so GET /api/repos (registry-backed) returns myrepo
+      reposEnv: 'myrepo=https://github.com/x/myrepo.git#main',
     };
     const app = await createServer(config, db);
 
