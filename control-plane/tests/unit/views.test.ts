@@ -11,7 +11,7 @@ import {
   renderNewPlanPage,
   type SessionRow,
 } from '../../src/views';
-import type { RepoInfo, NormalizedExecution, PlanDetail } from '../../src/discovery';
+import type { RepoInfo, RegistryRepoInfo, NormalizedExecution, PlanDetail } from '../../src/discovery';
 import type { ApprovalRequestRow } from '../../src/db';
 
 // ── formatTimeSince ────────────────────────────────────────────────────
@@ -82,6 +82,15 @@ describe('healthBadgeClass', () => {
 
 // ── renderOverviewPage ─────────────────────────────────────────────────
 
+function makeRegistryRepo(overrides: Partial<RegistryRepoInfo> & Pick<RegistryRepoInfo, 'name'>): RegistryRepoInfo {
+  return {
+    currentBranch: null, latestCommit: null, activePlan: null, planCount: 0,
+    gitUrl: 'https://github.com/example/repo.git', registryBranch: 'main',
+    source: 'seed', registryStatus: 'active', cloned: true,
+    ...overrides,
+  };
+}
+
 describe('renderOverviewPage', () => {
   it('renders empty state with no repos', () => {
     const html = renderOverviewPage([], []);
@@ -89,24 +98,60 @@ describe('renderOverviewPage', () => {
     expect(html).toContain('Overview');
   });
 
+  it('renders add-repo form', () => {
+    const html = renderOverviewPage([], []);
+    expect(html).toContain('Add repo');
+    expect(html).toContain('action="/repos"');
+    expect(html).toContain('name="gitUrl"');
+  });
+
   it('renders repo names', () => {
-    const repos: RepoInfo[] = [
-      { name: 'myrepo', currentBranch: 'main', latestCommit: 'abc123 fix bug', activePlan: null, planCount: 2 },
+    const repos: RegistryRepoInfo[] = [
+      makeRegistryRepo({ name: 'myrepo', currentBranch: 'main', latestCommit: 'abc123 fix bug' }),
     ];
     const html = renderOverviewPage(repos, []);
     expect(html).toContain('myrepo');
     expect(html).toContain('main');
   });
 
+  it('renders cloned/not-cloned badge', () => {
+    const repos: RegistryRepoInfo[] = [
+      makeRegistryRepo({ name: 'cloned-repo', cloned: true }),
+      makeRegistryRepo({ name: 'ghost-repo', cloned: false }),
+    ];
+    const html = renderOverviewPage(repos, []);
+    expect(html).toContain('Cloned');
+    expect(html).toContain('Not cloned');
+  });
+
+  it('renders archive button per repo', () => {
+    const repos: RegistryRepoInfo[] = [
+      makeRegistryRepo({ name: 'testrepo' }),
+    ];
+    const html = renderOverviewPage(repos, []);
+    expect(html).toContain('action="/repos/testrepo/archive"');
+    expect(html).toContain('Archive');
+  });
+
+  it('renders success message', () => {
+    const html = renderOverviewPage([], [], { type: 'success', text: 'Repo added.' });
+    expect(html).toContain('Repo added.');
+  });
+
+  it('renders error message', () => {
+    const html = renderOverviewPage([], [], { type: 'error', text: 'Something went wrong.' });
+    expect(html).toContain('Something went wrong.');
+  });
+
   it('renders health badge from executions', () => {
-    const repos: RepoInfo[] = [
-      { name: 'myrepo', currentBranch: 'main', latestCommit: null, activePlan: null, planCount: 0 },
+    const repos: RegistryRepoInfo[] = [
+      makeRegistryRepo({ name: 'myrepo', currentBranch: 'main' }),
     ];
     const executions: NormalizedExecution[] = [{
       id: 1, repo: 'myrepo', planFile: 'plan.md', planHash: 'abc',
       attemptId: 'att1', providerRequested: 'claude-code', providerUsed: 'claude-code',
       model: null, branch: null, status: 'running', classification: 'rate_limited',
-      latestProgressTs: null, latestTranscriptTs: null, createdAt: 0, updatedAt: 0,
+      latestProgressTs: null, latestTranscriptTs: null, lastRecoveryAction: null, createdAt: 0, updatedAt: 0,
     }];
     const html = renderOverviewPage(repos, executions);
     expect(html).toContain('Rate limited');
@@ -114,25 +159,21 @@ describe('renderOverviewPage', () => {
   });
 
   it('shows time-since columns in header', () => {
-    const repos: RepoInfo[] = [
-      { name: 'r', currentBranch: 'main', latestCommit: null, activePlan: null, planCount: 0 },
-    ];
+    const repos: RegistryRepoInfo[] = [makeRegistryRepo({ name: 'r' })];
     const html = renderOverviewPage(repos, []);
     expect(html).toContain('Last progress');
     expect(html).toContain('Last transcript');
   });
 
   it('shows health classification column in header', () => {
-    const repos: RepoInfo[] = [
-      { name: 'r', currentBranch: 'main', latestCommit: null, activePlan: null, planCount: 0 },
-    ];
+    const repos: RegistryRepoInfo[] = [makeRegistryRepo({ name: 'r' })];
     const html = renderOverviewPage(repos, []);
     expect(html).toContain('Health');
   });
 
   it('links active plan to plan detail page', () => {
-    const repos: RepoInfo[] = [
-      { name: 'testrepo', currentBranch: 'main', latestCommit: null, activePlan: 'my-plan', planCount: 1 },
+    const repos: RegistryRepoInfo[] = [
+      makeRegistryRepo({ name: 'testrepo', activePlan: 'my-plan', planCount: 1 }),
     ];
     const html = renderOverviewPage(repos, []);
     expect(html).toContain('/repos/testrepo/plans/my-plan');

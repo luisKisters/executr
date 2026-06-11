@@ -1,4 +1,4 @@
-import type { RepoInfo, PlanSummary, PlanDetail, NormalizedExecution } from './discovery';
+import type { RepoInfo, RegistryRepoInfo, PlanSummary, PlanDetail, NormalizedExecution } from './discovery';
 import type { ClassificationSignal, ProviderName } from './contracts';
 import type { ApprovalRequestRow } from './db';
 
@@ -160,7 +160,31 @@ export function renderLoginPage(error?: string): string {
 
 // ── Overview ───────────────────────────────────────────────────────────
 
-export function renderOverviewPage(repos: RepoInfo[] = [], executions: NormalizedExecution[] = []): string {
+const ADD_REPO_FORM = `
+  <details class="add-repo-details">
+    <summary>+ Add repo</summary>
+    <form method="POST" action="/repos" class="add-repo-form" id="add-repo-form">
+      <div class="form-row">
+        <label for="ar-name">Name</label>
+        <input type="text" id="ar-name" name="name" required placeholder="my-repo" pattern="[a-zA-Z0-9][a-zA-Z0-9_.-]*">
+      </div>
+      <div class="form-row">
+        <label for="ar-url">Git URL</label>
+        <input type="text" id="ar-url" name="gitUrl" required placeholder="https://github.com/org/repo.git">
+      </div>
+      <div class="form-row">
+        <label for="ar-branch">Branch</label>
+        <input type="text" id="ar-branch" name="branch" placeholder="main (default)">
+      </div>
+      <button type="submit" class="btn-primary">Clone &amp; register</button>
+    </form>
+  </details>`;
+
+export function renderOverviewPage(
+  repos: RegistryRepoInfo[] = [],
+  executions: NormalizedExecution[] = [],
+  overviewMessage?: { type: 'success' | 'error'; text: string }
+): string {
   const execByRepo = new Map<string, NormalizedExecution[]>();
   for (const ex of executions) {
     const list = execByRepo.get(ex.repo) ?? [];
@@ -168,12 +192,17 @@ export function renderOverviewPage(repos: RepoInfo[] = [], executions: Normalize
     execByRepo.set(ex.repo, list);
   }
 
+  const msgHtml = overviewMessage
+    ? `<div class="${overviewMessage.type === 'success' ? 'success' : 'error'}" role="${overviewMessage.type === 'success' ? 'status' : 'alert'}">${escapeHtml(overviewMessage.text)}</div>`
+    : '';
+
   const reposHtml = repos.length === 0
-    ? '<p class="empty">No repos found. Add repos to WORKSPACE_ROOT to see them here.</p>'
+    ? '<p class="empty">No repos found. Use the form above to add a repo.</p>'
     : `<table class="data-table">
         <thead>
           <tr>
             <th>Repo</th>
+            <th>Status</th>
             <th>Branch</th>
             <th>Latest commit</th>
             <th>Plans</th>
@@ -181,6 +210,7 @@ export function renderOverviewPage(repos: RepoInfo[] = [], executions: Normalize
             <th>Health</th>
             <th>Last progress</th>
             <th>Last transcript</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -193,9 +223,13 @@ export function renderOverviewPage(repos: RepoInfo[] = [], executions: Normalize
               : '<span class="badge badge-grey">—</span>';
             const lastProgress = formatTimeSince(latest?.latestProgressTs ?? null);
             const lastTranscript = formatTimeSince(latest?.latestTranscriptTs ?? null);
+            const cloneBadge = r.cloned
+              ? '<span class="badge badge-green">Cloned</span>'
+              : '<span class="badge badge-grey">Not cloned</span>';
             return `
           <tr>
             <td><a href="/repos/${escapeHtml(r.name)}/plans">${escapeHtml(r.name)}</a></td>
+            <td>${cloneBadge}</td>
             <td>${escapeHtml(r.currentBranch ?? '—')}</td>
             <td class="hash">${escapeHtml(r.latestCommit ?? '—')}</td>
             <td>${r.planCount}</td>
@@ -203,14 +237,29 @@ export function renderOverviewPage(repos: RepoInfo[] = [], executions: Normalize
             <td>${badgeHtml}</td>
             <td>${escapeHtml(lastProgress)}</td>
             <td>${escapeHtml(lastTranscript)}</td>
+            <td>
+              <form method="POST" action="/repos/${escapeHtml(r.name)}/archive" style="display:inline" onsubmit="return confirm('Archive repo ${escapeHtml(r.name)}? The clone is kept on disk.')">
+                <button type="submit" class="btn-danger-sm">Archive</button>
+              </form>
+            </td>
           </tr>`;
           }).join('')}
         </tbody>
       </table>`;
 
   return page('Overview', `
-    .hash { font-family: monospace; font-size: 0.85rem; max-width: 30ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }`,
-    `<h2>Overview</h2>${reposHtml}`);
+    .hash { font-family: monospace; font-size: 0.85rem; max-width: 30ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .add-repo-details { margin-bottom: 1.5rem; }
+    .add-repo-details summary { cursor: pointer; font-size: 0.95rem; color: #1a1a2e; font-weight: 600; user-select: none; }
+    .add-repo-form { display: grid; grid-template-columns: max-content 1fr; gap: 0.5rem 1rem; align-items: center; margin-top: 1rem; max-width: 520px; }
+    .form-row { display: contents; }
+    .form-row label { font-size: 0.9rem; font-weight: 600; }
+    .form-row input { padding: 0.4rem 0.6rem; font-size: 0.9rem; border: 1px solid #ccc; border-radius: 4px; }
+    .btn-primary { grid-column: 2; padding: 0.45rem 1rem; background: #1a1a2e; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; margin-top: 0.25rem; }
+    .btn-primary:hover { background: #16213e; }
+    .btn-danger-sm { padding: 0.2rem 0.5rem; background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; border-radius: 4px; cursor: pointer; font-size: 0.78rem; }
+    .btn-danger-sm:hover { background: #fecaca; }`,
+    `<h2>Overview</h2>${msgHtml}${ADD_REPO_FORM}${reposHtml}`);
 }
 
 // ── Plans list ─────────────────────────────────────────────────────────

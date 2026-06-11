@@ -369,18 +369,18 @@ DB-backed registry managed from the UI — `REPOS` survives only as an optional 
 
 ### Task 13: Add / remove repos from the UI + API (live clone, no container restart)
 
-- [ ] `POST /api/repos` `{ name, gitUrl, branch }` → validate, **clone into `WORKSPACE_ROOT`
+- [x] `POST /api/repos` `{ name, gitUrl, branch }` → validate, **clone into `WORKSPACE_ROOT`
       using the container's stored git credentials**, register as `source=manual`, set
       `last_cloned_at`. Idempotent if the repo already exists (re-fetch instead of re-clone).
-- [ ] `DELETE /api/repos/:repo` → archive the registry entry (and optionally delete the clone);
+- [x] `DELETE /api/repos/:repo` → archive the registry entry (and optionally delete the clone);
       this is a guarded action — confirm in the UI, never wipe uncommitted work silently.
-- [ ] UI: an **"Add repo"** form on the Overview page (name, git URL, branch) and an
+- [x] UI: an **"Add repo"** form on the Overview page (name, git URL, branch) and an
       archive/remove control per repo, with clear success/error states.
-- [ ] A repo added here is cloned **live** — no `REPOS` edit, no recreate, no restart.
-- [ ] **Unit tests:** add validates input + builds the right clone invocation (mock the git
+- [x] A repo added here is cloned **live** — no `REPOS` edit, no recreate, no restart.
+- [x] **Unit tests:** add validates input + builds the right clone invocation (mock the git
       clone); duplicate add re-fetches; archive flips status and is guarded; path-traversal /
       bad-URL rejected.
-- [ ] **agent-browser:** submit the Add-repo form → the new repo appears in Overview as cloned.
+- [x] **agent-browser:** submit the Add-repo form → the new repo appears in Overview as cloned.
 
 ### Task 14: Make the watch loop + orchestrator read the registry, not `REPOS`
 

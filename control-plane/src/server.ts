@@ -27,6 +27,7 @@ import {
 } from './discovery';
 import { createPlan, hashContent, type PlanProvider } from './planCreation';
 import { readClaim, isActiveClaim } from './claims';
+import { addRepo, archiveRepo } from './repoManager';
 import {
   DEFAULT_PROVIDER_POLICY,
   type ProviderPolicy,
@@ -136,10 +137,17 @@ export async function createServer(
 
   // ── UI routes ──────────────────────────────────────────────────────
 
-  app.get('/', async (_request, reply) => {
+  app.get('/', async (request, reply) => {
+    const { added, archived, error } = request.query as {
+      added?: string; archived?: string; error?: string;
+    };
     const repos = listReposFromRegistry(_db, config.workspaceRoot);
     const executions = listNormalizedExecutions(_db);
-    return reply.type('text/html').send(renderOverviewPage(repos, executions));
+    let msg: { type: 'success' | 'error'; text: string } | undefined;
+    if (added) msg = { type: 'success', text: `Repo "${added}" added successfully.` };
+    else if (archived) msg = { type: 'success', text: `Repo "${archived}" archived.` };
+    else if (error) msg = { type: 'error', text: decodeURIComponent(error) };
+    return reply.type('text/html').send(renderOverviewPage(repos, executions, msg));
   });
 
   app.get('/plans', async (request, reply) => {
@@ -352,6 +360,60 @@ export async function createServer(
     }
     updateApprovalRequestStatus(_db, id, decision, body?.decidedBy ?? 'ui');
     return reply.send({ id, status: decision });
+  });
+
+  // ── Task 13: add / archive repo — UI form handlers ──────────────────────
+
+  app.post('/repos', async (request, reply) => {
+    const form = request.body as { name?: string; gitUrl?: string; branch?: string };
+    const result = addRepo(config.workspaceRoot, _db, {
+      name: form?.name ?? '',
+      gitUrl: form?.gitUrl ?? '',
+      branch: form?.branch,
+    });
+    if (!result.ok) {
+      return reply.redirect(`/?error=${encodeURIComponent(result.error)}`);
+    }
+    return reply.redirect(`/?added=${encodeURIComponent((form?.name ?? '').trim())}`);
+  });
+
+  app.post('/repos/:repo/archive', async (request, reply) => {
+    const { repo } = request.params as { repo: string };
+    const result = archiveRepo(config.workspaceRoot, _db, repo);
+    if (!result.ok) {
+      return reply.redirect(`/?error=${encodeURIComponent(result.error)}`);
+    }
+    return reply.redirect(`/?archived=${encodeURIComponent(repo)}`);
+  });
+
+  // ── Task 13: add / archive repo — API endpoints ──────────────────────────
+
+  app.post('/api/repos', async (request, reply) => {
+    const body = request.body as { name?: string; gitUrl?: string; branch?: string };
+    const result = addRepo(config.workspaceRoot, _db, {
+      name: body?.name ?? '',
+      gitUrl: body?.gitUrl ?? '',
+      branch: body?.branch,
+    });
+    if (!result.ok) {
+      return reply.status(result.statusCode).send({ error: result.error });
+    }
+    return reply.status(result.alreadyExisted ? 200 : 201).send({
+      name: (body?.name ?? '').trim(),
+      alreadyExisted: result.alreadyExisted,
+    });
+  });
+
+  app.delete('/api/repos/:repo', async (request, reply) => {
+    const { repo } = request.params as { repo: string };
+    const result = archiveRepo(config.workspaceRoot, _db, repo);
+    if (!result.ok) {
+      return reply.status(result.statusCode).send({
+        error: result.error,
+        ...(result.hasUncommittedWork ? { hasUncommittedWork: true } : {}),
+      });
+    }
+    return reply.send({ archived: true, name: repo });
   });
 
   // ── Task 4: plan creation API ─────────────────────────────────────────

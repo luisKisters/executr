@@ -533,6 +533,35 @@ export function listAllRegistryRepos(db: OrchestratorDB): RepoRegistryRow[] {
   return rows.map(toRepoRegistryRow);
 }
 
+export function getRepoFromRegistry(db: OrchestratorDB, name: string): RepoRegistryRow | null {
+  const r = db.prepare('SELECT * FROM repos WHERE name = ?').get(name) as Record<string, unknown> | undefined;
+  return r ? toRepoRegistryRow(r) : null;
+}
+
+export function archiveRepoInRegistry(db: OrchestratorDB, name: string): void {
+  db.prepare("UPDATE repos SET status = 'archived' WHERE name = ?").run(name);
+}
+
+export function updateRepoLastCloned(db: OrchestratorDB, name: string, timestamp: number): void {
+  db.prepare('UPDATE repos SET last_cloned_at = ? WHERE name = ?').run(timestamp, name);
+}
+
+export function upsertRepoInRegistry(db: OrchestratorDB, entry: RepoRegistryRow): void {
+  db.prepare(`
+    INSERT INTO repos (name, git_url, branch, source, status, added_at, last_cloned_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(name) DO UPDATE SET
+      git_url = excluded.git_url,
+      branch = excluded.branch,
+      source = excluded.source,
+      status = excluded.status,
+      last_cloned_at = excluded.last_cloned_at
+  `).run(
+    entry.name, entry.gitUrl, entry.branch, entry.source, entry.status,
+    entry.addedAt, entry.lastClonedAt ?? null
+  );
+}
+
 function toRepoRegistryRow(r: Record<string, unknown>): RepoRegistryRow {
   return {
     name: r['name'] as string,
