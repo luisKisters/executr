@@ -85,32 +85,30 @@ transcript. Fixed by `~/.claude/settings.json` → `{"skipDangerousModePermissio
 in the image + re-asserted by entrypoint). The entrypoint also pre-accepts onboarding + per-repo
 trust in `~/.claude.json`. If a brand-new run stalls on *every* turn from the start, check these first.
 
-## Swift / macOS plans (e.g. `notetakr`) — these are LIVE-ONLY, not in the image
+## Swift / macOS plans (e.g. `notetakr`) — Swift is now BAKED INTO THE IMAGE
 
-The base image has **no Swift**. For Swift plans the agent's `local-validate` needs a compiler:
+Swift 6.3.2 is baked into the Dockerfile (`ARG SWIFT_VERSION=6.3.2`, native Debian 12 swift.org
+build at `/opt/swift`, symlinked to `/usr/local/bin/swift`), so `local-validate` (`swift test`)
+works out of the box and **a recreate/redeploy no longer re-breaks Swift plans**. History/details:
 
-- Swift 6.3.2 was installed **live** to `/opt/swift` (symlinked `/usr/local/bin/swift`). Debian 12 has
-  a native swift.org build — download it directly (swiftly's auto-install is **broken on Debian**: it
-  builds a URL with a space in it):
-  `curl -fSL https://download.swift.org/swift-6.3.2-release/debian12/swift-6.3.2-RELEASE/swift-6.3.2-RELEASE-debian12.tar.gz` →
-  `tar -xz -C /opt/swift --strip-components=1` → symlink `usr/bin/swift` into `/usr/local/bin`. Needs
-  apt deps (`libpython3-dev libcurl4-openssl-dev libxml2-dev …`).
+- It was originally installed **live** (swiftly's auto-install is **broken on Debian** — it builds a
+  URL with a space), then baked into the image so it survives a recreate. The `~1 GB` layer is the
+  tradeoff (slower image pulls).
 - A **global gitignore** prevents `swift build` output from dirtying the tree (else ralphex refuses to
   create the feature branch): `git config --global core.excludesfile ~/.config/git/ignore` with
-  `.build/`, `.swiftpm/`.
-- **These survive `docker restart` but are WIPED by a recreate/redeploy.** To make durable, bake Swift
-  into the Dockerfile (~1 GB layer).
+  `.build/`, `.swiftpm/` (set by the entrypoint).
 - A macOS `.dmg` can't be built in the Linux container — it's built on the repo's **GitHub Actions
   macOS runner** (`xcodebuild archive` → `hdiutil create`). SwiftPM with no `platforms:` in
   `Package.swift` archives at an ancient macOS target → pass `MACOSX_DEPLOYMENT_TARGET=13.0`.
 
 ## `docker restart` vs Coolify redeploy — KNOW THE DIFFERENCE
 
-| Action | Writable layer (Swift install, global gitignore, live config patches) | Effect |
+| Action | Writable layer (live config patches, caches, `~/.codex` auth, transcripts) | Effect |
 |---|---|---|
 | `docker restart <C>` | **PRESERVED** | Stops+starts the same container; re-runs entrypoint (re-clone/pull, re-seed config, restart dashboard+loop). Kills the current run and restarts the loop. |
-| Coolify **Redeploy** / `docker compose up` / recreate | **WIPED** (fresh container from the image) | Loses any **live-only** change → **re-breaks Swift plans**. Only do this after baking those into the image. |
+| Coolify **Redeploy** / `docker compose up` / recreate | **WIPED** (fresh container from the image) | Loses any **live-only** change. Swift is baked into the image now, so this no longer re-breaks Swift plans — but it still wipes `~/.cache`, Claude transcripts, and live `~/.codex` auth. |
 
-So: a plain **restart is safe** (keeps everything), but **never redeploy/recreate** while a Swift plan
-relies on the live `/opt/swift` install. A restart rarely *helps* a stall — it just restarts the loop
-(and re-runs the in-progress plan from its last committed state); the stall self-heals on its own anyway.
+So: a plain **restart is safe** (keeps everything). A **redeploy/recreate is safe for Swift** now (it's
+baked in) but still throws away caches/transcripts/live auth — only do it when you mean to. A restart
+rarely *helps* a stall — it just restarts the loop (and re-runs the in-progress plan from its last
+committed state); the stall self-heals on its own anyway.
