@@ -350,6 +350,56 @@ existing dashboard + orchestrator observe it identically.
 - [ ] **agent-browser:** full end-to-end smoke — log in, view overview, create a plan via the
       form, confirm it lands in `docs/plans/` and appears in the list.
 
+### Task 12: Repo registry in the state DB (the source of truth, replacing the REPOS env)
+
+Goal: **free executr from the `REPOS` env var.** Which repos executr operates on becomes a
+DB-backed registry managed from the UI — `REPOS` survives only as an optional first-boot seed.
+
+- [ ] Add a `repos` table to the Task 2 SQLite DB: `name`, `git_url`, `branch`, `source`
+      (`seed | manual`), `status` (`active | archived`), `added_at`, `last_cloned_at`.
+- [ ] On first boot, **seed the registry from the `REPOS` env** (parse the existing
+      `name=URL[#branch]` / `URL[#branch]` format) so current repos migrate automatically.
+      Idempotent: re-seeding never duplicates or clobbers manually-added repos.
+- [ ] Expose the registry read API: `GET /api/repos` now returns registry entries joined with
+      filesystem/clone state (cloned?, current branch, plan counts).
+- [ ] **Unit tests:** migration creates the table; REPOS seeding parses all entry formats and
+      is idempotent; archived repos are excluded from the active set.
+- [ ] **agent-browser:** the Overview view lists the registry repos (seeded set) with their
+      clone/branch state.
+
+### Task 13: Add / remove repos from the UI + API (live clone, no container restart)
+
+- [ ] `POST /api/repos` `{ name, gitUrl, branch }` → validate, **clone into `WORKSPACE_ROOT`
+      using the container's stored git credentials**, register as `source=manual`, set
+      `last_cloned_at`. Idempotent if the repo already exists (re-fetch instead of re-clone).
+- [ ] `DELETE /api/repos/:repo` → archive the registry entry (and optionally delete the clone);
+      this is a guarded action — confirm in the UI, never wipe uncommitted work silently.
+- [ ] UI: an **"Add repo"** form on the Overview page (name, git URL, branch) and an
+      archive/remove control per repo, with clear success/error states.
+- [ ] A repo added here is cloned **live** — no `REPOS` edit, no recreate, no restart.
+- [ ] **Unit tests:** add validates input + builds the right clone invocation (mock the git
+      clone); duplicate add re-fetches; archive flips status and is guarded; path-traversal /
+      bad-URL rejected.
+- [ ] **agent-browser:** submit the Add-repo form → the new repo appears in Overview as cloned.
+
+### Task 14: Make the watch loop + orchestrator read the registry, not `REPOS`
+
+- [ ] The control-plane maintains a derived, loop-readable repo list (e.g.
+      `${WORKSPACE_ROOT}/.executr/repos.list`, regenerated on every registry change) — or
+      `entrypoint.sh` queries `GET /api/repos`. Pick the simpler robust option.
+- [ ] Rework `entrypoint.sh`: clone/iterate repos from the **registry list**, not the `REPOS`
+      env. `REPOS` becomes an **optional seed only** — an empty/unset `REPOS` is fully valid
+      and the system runs purely off the registry. Keep the change additive and reversible.
+- [ ] A repo added via Task 13 is picked up by the watch loop within one `POLL_SECONDS` cycle,
+      with **no container restart** and **no env edit**.
+- [ ] Update `docs/plans` examples, `.env.example`, and `README`/`CLAUDE.md` to state `REPOS`
+      is now an optional bootstrap seed, with the UI as the primary way to manage repos.
+- [ ] **Unit/integration tests:** the loop's repo-source function reads the registry list and
+      ignores an empty `REPOS`; a newly-registered repo enters the active set without a restart.
+- [ ] **agent-browser:** end-to-end — add a repo in the UI, then confirm the loop discovers it
+      (e.g. it shows an active/clonable state and the repo's plans become listable) with no
+      restart.
+
 ## Design Constraints (carry through all tasks)
 
 - One shared UI password is the only web gate; Telegram has its own user-ID allowlist. Keep
