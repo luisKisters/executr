@@ -57,6 +57,7 @@ export interface NormalizedExecution {
   classification: ClassificationSignal;
   latestProgressTs: number | null;
   latestTranscriptTs: number | null;
+  lastRecoveryAction: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -362,6 +363,7 @@ export function listNormalizedExecutions(db: OrchestratorDB): NormalizedExecutio
     classification: (row.classification ?? 'healthy') as ClassificationSignal,
     latestProgressTs: row.latestProgressTs,
     latestTranscriptTs: row.latestTranscriptTs,
+    lastRecoveryAction: row.lastRecoveryAction,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }));

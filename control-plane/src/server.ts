@@ -13,8 +13,9 @@ import {
   renderSessionsPage,
   type PlanProviderInfo,
 } from './views';
-import { openDatabase, listExecutions, listApprovalRequests, type OrchestratorDB } from './db';
+import { openDatabase, listExecutions, listApprovalRequests, updateApprovalRequestStatus, type OrchestratorDB } from './db';
 import { ObserverPoller } from './observer';
+import { RecoveryPoller } from './recovery';
 import {
   listRepos,
   listPlansForRepo,
@@ -44,9 +45,10 @@ export async function createServer(
   const app = Fastify({ logger: false });
 
   const poller = new ObserverPoller(_db, { workspaceRoot: config.workspaceRoot });
+  const recoveryPoller = new RecoveryPoller(_db, { workspaceRoot: config.workspaceRoot });
   if (startObserver) {
-    app.addHook('onReady', async () => { poller.start(); });
-    app.addHook('onClose', async () => { poller.stop(); });
+    app.addHook('onReady', async () => { poller.start(); recoveryPoller.start(); });
+    app.addHook('onClose', async () => { poller.stop(); recoveryPoller.stop(); });
   }
 
   await app.register(cookie, {
@@ -295,6 +297,27 @@ export async function createServer(
     }
 
     return reply.send(_providerPolicy);
+  });
+
+  // ── Task 9: approval decision API ────────────────────────────────────────
+
+  app.post('/api/approvals/:id/decide', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { decision?: string; decidedBy?: string };
+    const decision = body?.decision;
+    if (decision !== 'approved' && decision !== 'denied') {
+      return reply.status(400).send({ error: 'decision must be "approved" or "denied"' });
+    }
+    const requests = listApprovalRequests(_db);
+    const existing = requests.find(r => r.id === id);
+    if (!existing) {
+      return reply.status(404).send({ error: 'Approval request not found' });
+    }
+    if (existing.status !== 'pending') {
+      return reply.status(409).send({ error: 'Approval request is already decided' });
+    }
+    updateApprovalRequestStatus(_db, id, decision, body?.decidedBy ?? 'ui');
+    return reply.send({ id, status: decision });
   });
 
   // ── Task 4: plan creation API ─────────────────────────────────────────

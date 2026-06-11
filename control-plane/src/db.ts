@@ -20,6 +20,7 @@ export interface ExecutionRow {
   rateLimitCooldownUntil: number | null;
   lastRecoveryAction: string | null;
   classification: ClassificationSignal | null;
+  recoveryAttemptCounts: Record<string, number>;
   createdAt: number;
   updatedAt: number;
 }
@@ -95,6 +96,13 @@ function runMigrations(db: DatabaseSync): void {
       );
 
       INSERT INTO schema_version (version) VALUES (1)
+    `);
+  }
+
+  if (currentVersion < 2) {
+    db.exec(`
+      ALTER TABLE executions ADD COLUMN recovery_attempt_counts TEXT;
+      INSERT INTO schema_version (version) VALUES (2)
     `);
   }
 }
@@ -194,6 +202,71 @@ export function listApprovalRequests(db: OrchestratorDB): ApprovalRequestRow[] {
   return rows.map(toApprovalRequestRow);
 }
 
+export function getExecutionByAttemptId(db: OrchestratorDB, attemptId: string): ExecutionRow | null {
+  const row = db.prepare('SELECT * FROM executions WHERE attempt_id = ?').get(attemptId) as Record<string, unknown> | undefined;
+  return row ? toExecutionRow(row) : null;
+}
+
+export function incrementRecoveryAttemptCount(
+  db: OrchestratorDB,
+  attemptId: string,
+  actionType: string
+): void {
+  const existing = getExecutionByAttemptId(db, attemptId);
+  if (!existing) return;
+  const counts = { ...existing.recoveryAttemptCounts };
+  counts[actionType] = (counts[actionType] ?? 0) + 1;
+  const now = Date.now();
+  db.prepare('UPDATE executions SET recovery_attempt_counts = ?, updated_at = ? WHERE attempt_id = ?')
+    .run(JSON.stringify(counts), now, attemptId);
+}
+
+export function setExecutionCooldown(
+  db: OrchestratorDB,
+  attemptId: string,
+  cooldownUntilMs: number
+): void {
+  const now = Date.now();
+  db.prepare('UPDATE executions SET rate_limit_cooldown_until = ?, updated_at = ? WHERE attempt_id = ?')
+    .run(cooldownUntilMs, now, attemptId);
+}
+
+export function setLastRecoveryAction(
+  db: OrchestratorDB,
+  attemptId: string,
+  action: string
+): void {
+  const now = Date.now();
+  db.prepare('UPDATE executions SET last_recovery_action = ?, updated_at = ? WHERE attempt_id = ?')
+    .run(action, now, attemptId);
+}
+
+export function updateApprovalRequestStatus(
+  db: OrchestratorDB,
+  id: string,
+  status: ApprovalStatus,
+  decidedBy?: string
+): void {
+  const now = Date.now();
+  db.prepare('UPDATE approval_requests SET status = ?, decided_by = ?, decided_at = ? WHERE id = ?')
+    .run(status, decidedBy ?? null, now, id);
+}
+
+function parseRecoveryAttemptCounts(raw: unknown): Record<string, number> {
+  if (typeof raw !== 'string' || !raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      const result: Record<string, number> = {};
+      for (const [k, v] of Object.entries(parsed)) {
+        if (typeof v === 'number') result[k] = v;
+      }
+      return result;
+    }
+  } catch { /* ignore */ }
+  return {};
+}
+
 function toExecutionRow(r: Record<string, unknown>): ExecutionRow {
   return {
     id: r['id'] as number,
@@ -212,6 +285,7 @@ function toExecutionRow(r: Record<string, unknown>): ExecutionRow {
     rateLimitCooldownUntil: (r['rate_limit_cooldown_until'] as number | null) ?? null,
     lastRecoveryAction: (r['last_recovery_action'] as string | null) ?? null,
     classification: (r['classification'] as ClassificationSignal | null) ?? null,
+    recoveryAttemptCounts: parseRecoveryAttemptCounts(r['recovery_attempt_counts']),
     createdAt: r['created_at'] as number,
     updatedAt: r['updated_at'] as number,
   };

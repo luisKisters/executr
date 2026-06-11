@@ -489,7 +489,7 @@ export function renderNewPlanPage(
 
 interface ActivityEvent {
   ts: number;
-  type: 'execution' | 'approval';
+  type: 'execution' | 'approval' | 'recovery';
   label: string;
   detail: string;
   badgeClass: string;
@@ -510,6 +510,16 @@ export function renderActivityPage(
       detail: `${ex.status} · ${ex.providerUsed ?? ex.providerRequested} · ${healthBadgeLabel(signal)}`,
       badgeClass: healthBadgeClass(signal),
     });
+    // Surface any recovery action taken for this execution as a separate event
+    if (ex.lastRecoveryAction) {
+      events.push({
+        ts: ex.updatedAt,
+        type: 'recovery',
+        label: `Recovery: ${ex.repo} / ${ex.planFile}`,
+        detail: ex.lastRecoveryAction,
+        badgeClass: 'badge-yellow',
+      });
+    }
   }
 
   for (const ar of approvalRequests) {

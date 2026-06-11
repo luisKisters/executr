@@ -289,25 +289,25 @@ existing dashboard + orchestrator observe it identically.
 
 ### Task 9: Safe automatic recoveries + approval gating
 
-- [ ] `failed_finalize`: if a branch exists with commits but push/PR failed, push the branch
+- [x] `failed_finalize`: if a branch exists with commits but push/PR failed, push the branch
       and open the PR.
-- [ ] `dirty_tree_blocked`: inspect dirty files — if only known runtime state (`.ralphex/`,
+- [x] `dirty_tree_blocked`: inspect dirty files — if only known runtime state (`.ralphex/`,
       caches, build output) dirties the tree, fix exclude rules and retry; if user/source
       files are dirty, **do not act — raise an approval request** (Task 2 store).
-- [ ] `rate_limited`: set provider cooldown and switch to the next configured provider.
-- [ ] `auth_missing`: switch to another authenticated provider if one exists; notify.
-- [ ] `known_startup_stall`: wait through the self-healing window first; only after repeated
+- [x] `rate_limited`: set provider cooldown and switch to the next configured provider.
+- [x] `auth_missing`: switch to another authenticated provider if one exists; notify.
+- [x] `known_startup_stall`: wait through the self-healing window first; only after repeated
       stalls consider a bounded provider switch/restart.
-- [ ] Every automatic retry is bounded by counters + cooldowns. Destructive/expensive actions
+- [x] Every automatic retry is bounded by counters + cooldowns. Destructive/expensive actions
       (force-push, branch/worktree deletion, discarding uncommitted work, scope-changing plan
       rewrites, merge/close PR, large extra spend) are **never** automatic — they create a
       **pending approval request** in the Task 2 store and wait. Approval is channel-agnostic;
       Telegram becomes a channel in Task 10, but the gate works (UI-visible) without it.
-- [ ] **Unit tests:** each recovery decision fires only in its precondition and is suppressed
+- [x] **Unit tests:** each recovery decision fires only in its precondition and is suppressed
       past its retry bound; dirty-tree distinguishes runtime-state-only from user-file-dirty;
       every destructive action produces a pending approval request instead of acting; no
       destructive action is ever selected automatically.
-- [ ] **agent-browser:** a recovery event (e.g. "auto-pushed branch after failed finalize")
+- [x] **agent-browser:** a recovery event (e.g. "auto-pushed branch after failed finalize")
       and a pending approval request both appear in the Activity/Timeline view.
 
 ### Task 10: Telegram planning bot — text sessions, allowlist, approval channel
