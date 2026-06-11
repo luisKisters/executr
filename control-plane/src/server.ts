@@ -2,7 +2,7 @@ import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import cookie from '@fastify/cookie';
 import formbody from '@fastify/formbody';
 import type { Config } from './config';
-import { renderLoginPage, renderOverviewPage } from './views';
+import { renderLoginPage, renderOverviewPage, renderPlansPage, renderNewPlanPage } from './views';
 import { openDatabase, listExecutions, listApprovalRequests, type OrchestratorDB } from './db';
 import {
   listRepos,
@@ -10,6 +10,7 @@ import {
   getPlanDetail,
   listNormalizedExecutions,
 } from './discovery';
+import { createPlan, type PlanProvider } from './planCreation';
 
 const SESSION_COOKIE = 'cp_session';
 const SESSION_VALUE = 'authenticated';
@@ -120,6 +121,90 @@ export async function createServer(config: Config, db?: OrchestratorDB): Promise
   app.get('/api/executions', async (_request, reply) => {
     const executions = listNormalizedExecutions(_db);
     return reply.send(executions);
+  });
+
+  // ── Task 4: plan creation API ─────────────────────────────────────────
+
+  app.post('/api/repos/:repo/plans', async (request, reply) => {
+    const { repo } = request.params as { repo: string };
+    const body = request.body as {
+      title?: string;
+      body?: string;
+      validationCommands?: string;
+      provider?: string;
+    };
+
+    const outcome = createPlan({
+      workspaceRoot: config.workspaceRoot,
+      claimsDir: config.claimsDir,
+      repo,
+      input: {
+        title: body?.title ?? '',
+        body: body?.body ?? '',
+        validationCommands: body?.validationCommands ?? '',
+        provider: (body?.provider as PlanProvider) ?? 'claude-code',
+      },
+    });
+
+    if (!outcome.ok) {
+      return reply.status(outcome.statusCode).send({ error: outcome.error });
+    }
+    return reply.status(201).send({
+      planName: outcome.planName,
+      fileName: outcome.fileName,
+      planHash: outcome.planHash,
+    });
+  });
+
+  // ── Task 4: UI routes for plan management ─────────────────────────────
+
+  app.get('/plans', async (request, reply) => {
+    const { created } = request.query as { created?: string };
+    const repos = listRepos(config.workspaceRoot);
+    const plans: Record<string, ReturnType<typeof listPlansForRepo>> = {};
+    for (const repo of repos) {
+      plans[repo.name] = listPlansForRepo(config.workspaceRoot, repo.name);
+    }
+    return reply.type('text/html').send(
+      renderPlansPage(repos, plans, created ? `Plan "${created}" created successfully.` : undefined)
+    );
+  });
+
+  app.get('/plans/new', async (_request, reply) => {
+    const repos = listRepos(config.workspaceRoot);
+    return reply.type('text/html').send(renderNewPlanPage(repos));
+  });
+
+  app.post('/plans/new', async (request, reply) => {
+    const form = request.body as {
+      repo?: string;
+      title?: string;
+      body?: string;
+      validationCommands?: string;
+      provider?: string;
+    };
+
+    const repos = listRepos(config.workspaceRoot);
+
+    const outcome = createPlan({
+      workspaceRoot: config.workspaceRoot,
+      claimsDir: config.claimsDir,
+      repo: form?.repo ?? '',
+      input: {
+        title: form?.title ?? '',
+        body: form?.body ?? '',
+        validationCommands: form?.validationCommands ?? '',
+        provider: (form?.provider as PlanProvider) ?? 'claude-code',
+      },
+    });
+
+    if (!outcome.ok) {
+      return reply.type('text/html').send(
+        renderNewPlanPage(repos, { error: outcome.error, values: form })
+      );
+    }
+
+    return reply.redirect(`/plans?created=${encodeURIComponent(outcome.planName)}`);
   });
 
   return app;

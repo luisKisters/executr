@@ -181,19 +181,19 @@ server against a temp fixture `/workspace` and drives it with agent-browser.
 
 ### Task 4: Plan creation API — validated, atomic ralphex-format writes
 
-- [ ] `POST /api/repos/:repo/plans` — accept `{ title, body, validationCommands, provider }`,
+- [x] `POST /api/repos/:repo/plans` — accept `{ title, body, validationCommands, provider }`,
       generate **ralphex-format** markdown, and write it atomically (temp file + rename) into
       `<repo>/docs/plans/`.
-- [ ] Format validator enforces the known-good shape: `# Plan: …`, a `## Validation Commands`
+- [x] Format validator enforces the known-good shape: `# Plan: …`, a `## Validation Commands`
       section, `### Task 1:` headings numbered **from 1** (reject `Task 0`), and `- [ ]`
       checkboxes (reject `* [ ]`). Reject + return a clear error on malformed input.
-- [ ] If `provider != claude-code`, also write a claim (Task 2) for the new plan so the
+- [x] If `provider != claude-code`, also write a claim (Task 2) for the new plan so the
       control-plane — not the legacy loop — will execute it.
-- [ ] Reject path traversal in `:repo`/title; never write outside `<repo>/docs/plans/`.
-- [ ] **Unit tests:** valid input writes a well-formed file atomically; each malformed case
+- [x] Reject path traversal in `:repo`/title; never write outside `<repo>/docs/plans/`.
+- [x] **Unit tests:** valid input writes a well-formed file atomically; each malformed case
       (Task 0, `* [ ]`, missing Validation Commands, traversal) is rejected; a non-claude
       provider writes a claim; concurrent writes don't corrupt.
-- [ ] **agent-browser:** "New plan" form → fill repo/title/body/validation/provider → submit →
+- [x] **agent-browser:** "New plan" form → fill repo/title/body/validation/provider → submit →
       success state, and the new plan appears in the plans list view.
 
 ### Task 5: Dashboard UI views
