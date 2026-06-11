@@ -1,0 +1,28 @@
+{
+  "name": "executr-control-plane",
+  "version": "0.1.0",
+  "description": "executr control-plane: operator UI, orchestrator, Telegram planning bot",
+  "main": "dist/index.js",
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^9.4.0",
+    "@fastify/formbody": "^7.4.0",
+    "fastify": "^4.28.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "eslint": "^9.3.0",
+    "tsx": "^4.11.0",
+    "typescript": "^5.4.5",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.0.5"
+  }
+}

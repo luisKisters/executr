@@ -124,18 +124,18 @@ server against a temp fixture `/workspace` and drives it with agent-browser.
 
 ### Task 1: Scaffold the control-plane service + single-password auth gate
 
-- [ ] Create `control-plane/` with `package.json`, `tsconfig.json`, lint config, and a
+- [x] Create `control-plane/` with `package.json`, `tsconfig.json`, lint config, and a
       `vitest` setup; add the scripts from Validation Commands (`lint`, `typecheck`, `test`,
       `test:e2e`, `build`).
-- [ ] HTTP server with a `GET /healthz` endpoint and a login page (`GET /login`,
+- [x] HTTP server with a `GET /healthz` endpoint and a login page (`GET /login`,
       `POST /login`) that checks `CONTROL_PLANE_PASSWORD` and sets a signed session cookie.
-- [ ] Auth middleware that protects all `/api/*` and UI routes except `/healthz` and `/login`;
+- [x] Auth middleware that protects all `/api/*` and UI routes except `/healthz` and `/login`;
       unauthenticated requests redirect to `/login` (UI) or return `401` (API).
-- [ ] Wire the env config (`WORKSPACE_ROOT`, `ORCHESTRATOR_DB_PATH`, `CLAIMS_DIR`) with the
+- [x] Wire the env config (`WORKSPACE_ROOT`, `ORCHESTRATOR_DB_PATH`, `CLAIMS_DIR`) with the
       documented defaults; tests point them at a temp fixture dir.
-- [ ] **Unit tests:** auth middleware allows valid cookie / rejects missing+wrong password;
+- [x] **Unit tests:** auth middleware allows valid cookie / rejects missing+wrong password;
       `/healthz` is public; wrong password on `POST /login` fails; config defaults resolve.
-- [ ] **agent-browser:** load `/` unauthenticated → redirected to login; submit the correct
+- [x] **agent-browser:** load `/` unauthenticated → redirected to login; submit the correct
       password → reach an (empty) overview page; screenshot asserts the gate works.
 
 ### Task 2: Shared contracts, state DB & execution ownership
