@@ -47,10 +47,10 @@ Current user intent:
 
 ### Task 2: Prove the control-plane runs
 
-- [ ] Build `control-plane`.
-- [ ] Start `node control-plane/dist/index.js` with test env on a non-default port.
-- [ ] Verify `/healthz` returns success.
-- [ ] Log in with `CONTROL_PLANE_PASSWORD=test` and verify the overview page renders.
-- [ ] Stop the test server cleanly.
-- [ ] Run `git status --short` and make sure only intended files changed.
-- [ ] Commit the finished port and updated plan.
+- [x] Build `control-plane`.
+- [x] Start `node control-plane/dist/index.js` with test env on a non-default port.
+- [x] Verify `/healthz` returns success.
+- [x] Log in with `CONTROL_PLANE_PASSWORD=test` and verify the overview page renders.
+- [x] Stop the test server cleanly.
+- [x] Run `git status --short` and make sure only intended files changed.
+- [x] Commit the finished port and updated plan.
