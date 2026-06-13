@@ -40,21 +40,10 @@ State dump for picking this back up in a fresh session. For *how to debug*, read
   container → a redeploy/recreate **WILL re-break Swift** unless it pulls the Swift-baked `:latest`.
 - **Persistence gap:** only `/workspace` is a volume. `~/.claude` (26 MB, 46 transcripts) and `~/.cache`
   (904 MB) live in the writable layer → **wiped on redeploy**. See the design doc for the volume plan.
-- **Codex review is OFF** (`EXTERNAL_REVIEW=none`). `codex` CLI is installed (`codex-cli 0.137.0`) but
-  **unauthenticated** (no `OPENAI_API_KEY`, no `~/.codex/auth.json`). To enable, see below.
+- **Codex review is removed for now.** executr forces `--external-review-tool=none`, ignores stale
+  `EXTERNAL_REVIEW=codex` env, and the image no longer installs the Codex CLI.
 - **Dashboard label bug** is cosmetic + in the compiled ralphex binary (can't patch). Triggered by
   `Task 0` numbering + `* [ ]` bullets. **Always author plans with `- [ ]` and number from Task 1.**
-
-## How to make codex (external review) work
-1. **Auth.** Easiest headless: set `OPENAI_API_KEY` (Coolify env, mark secret). Alternative (uses a
-   ChatGPT/codex subscription instead of API spend): provide `~/.codex/auth.json` — run `codex login`
-   once and persist `~/.codex` on a volume (see design doc Part 1).
-2. **Enable.** Set `EXTERNAL_REVIEW=codex` in Coolify env.
-3. **Apply.** Env changes need a **recreate** (not just restart) — sequence it with the Swift-baked
-   image + the persistence volumes so the recreate doesn't re-break Swift / lose caches.
-4. **Verify.** On start, the entrypoint must NOT log `EXTERNAL_REVIEW=codex but no codex auth -> using
-   none`; and the ralphex invocation should show `--external-review-tool=codex`. The review phase then
-   runs codex in addition to the claude review.
 
 ## Pending / next steps
 1. **Watch next-product-phase finish** (Tasks 2–6 + reviews → finalize/PR). If finalize's push fails
@@ -64,7 +53,6 @@ State dump for picking this back up in a fresh session. For *how to debug*, read
    (redeploy interrupts the current turn; it resumes from `/workspace`).
 3. **(Optional) Implement the persistence volumes** from `docs/persistent-state-and-worktrees.md` in the
    same redeploy so transcripts + caches survive.
-4. **(Optional) Enable codex** per the steps above, in that same recreate.
 
 ## Key links / access
 - Dashboard: https://executr.luiskisters.com

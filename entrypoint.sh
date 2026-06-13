@@ -42,13 +42,9 @@ mkdir -p "$HOME/.config/git"
 printf '%s\n' '.build/' '.swiftpm/' '*.swiftmodule' '.ralphex/' > "$HOME/.config/git/ignore"
 git config --global core.excludesfile "$HOME/.config/git/ignore"
 
-# external review (codex) needs auth; if requested but unauthed, fall back to none
-# so the review phase doesn't hard-fail and block finalize/PR.
-EXTERNAL_REVIEW="${EXTERNAL_REVIEW:-none}"
-if [ "$EXTERNAL_REVIEW" = "codex" ] && [ -z "${OPENAI_API_KEY:-}" ] && [ ! -f "$HOME/.codex/auth.json" ]; then
-  echo "executr: EXTERNAL_REVIEW=codex but no codex auth (OPENAI_API_KEY / ~/.codex/auth.json) -> using none"
-  EXTERNAL_REVIEW=none
-fi
+# Claude-only for now: execution already goes through Claude Code via fya, and
+# external cross-model review is disabled even if older deploy env still sets it.
+EXTERNAL_REVIEW=none
 export EXTERNAL_REVIEW
 
 # --- Claude Code config: keep fya's interactive session from blocking on a dialog ---
@@ -186,6 +182,7 @@ phase_pusher() {
 }
 phase_pusher &
 
+echo "executr: ralphex execution uses Claude Code via fya; external review disabled"
 echo "executr: watching plans across: $REPOS"
 while true; do
   for entry in $REPO_LIST; do

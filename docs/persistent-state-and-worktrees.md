@@ -24,7 +24,6 @@ boundary this plan is built around.
 | `/home/node/.claude` (**26 MB**, config + **46 session transcripts**) | writable layer | ✅ | ❌ wiped |
 | `/home/node/.cache` (**904 MB**: SwiftPM/build caches, model + tool downloads, pnpm) | writable layer | ✅ | ❌ wiped → re-downloaded |
 | `/opt/swift` (live-installed toolchain on the *current* container) | writable layer | ✅ | ❌ wiped (until the Swift-baked image ships) |
-| `~/.codex/auth.json` (if used for `EXTERNAL_REVIEW=codex`) | writable layer | ✅ | ❌ wiped |
 | `~/.claude.json`, `~/.git-credentials`, baked `~/.claude/settings.json` | re-seeded by `entrypoint.sh` each start | ✅ | ✅ (re-created) |
 
 So today **only `/workspace` is durable across a redeploy.** A redeploy throws
@@ -37,9 +36,6 @@ pre-bake image) the live Swift toolchain.
   what each turn did; useful for debugging stalls and auditing runs.
 - **Caches** (`~/.cache`, pnpm store) — avoid the 900 MB re-download/rebuild on
   every redeploy (slow cold starts).
-- **Codex auth** (`~/.codex`) — so `EXTERNAL_REVIEW=codex` keeps working without
-  re-auth (or keep using the `OPENAI_API_KEY` env var, which already persists via
-  Coolify).
 - **Tool installs** — should be **baked into the image**, not persisted as data
   (Swift is already baked in the Dockerfile as of `2f2d395`; the running
   container just predates that image — see migration note).
@@ -57,12 +53,10 @@ and bloat the volume.
       - executr_repo:/workspace                 # existing
       - executr_claude:/home/node/.claude       # config + transcripts (durable history)
       - executr_cache:/home/node/.cache         # build/model/pnpm caches (fast cold start)
-      - executr_codex:/home/node/.codex         # codex auth (optional; or use OPENAI_API_KEY)
 volumes:
   executr_repo:
   executr_claude:
   executr_cache:
-  executr_codex:
 ```
 
 Notes / gotchas:
@@ -73,8 +67,10 @@ Notes / gotchas:
   `skipDangerousModePermissionPrompt` fix still holds.
 - **Ownership:** the entrypoint already starts as root and `chown`s `/workspace`;
   extend that `chown` to the new mount points (`/home/node/.claude`,
-  `~/.cache`, `~/.codex`) so `node` owns freshly-created volumes.
-- **Keep baking tools** (Swift, gh, codex, agent-browser, Chrome) into the image
+  `~/.cache`) so `node` owns freshly-created volumes.
+- **No Codex volume:** executr is Claude-only for now; `EXTERNAL_REVIEW=codex`,
+  `OPENAI_API_KEY`, and `~/.codex` are not part of the current runtime.
+- **Keep baking tools** (Swift, gh, agent-browser, Chrome) into the image
   rather than persisting them as data — deterministic and rebuildable.
 - This does not change the `docker restart` story (already durable); it closes
   the **redeploy** gap.
