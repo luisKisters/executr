@@ -6,7 +6,7 @@
 #   name=URL[#branch]   or   URL[#branch]   (name derived from the URL)
 # e.g. REPOS="app=https://github.com/your-org/your-repo.git#main,\
 #             api=https://github.com/your-org/api.git"
-# Back-compat: if REPOS is empty, falls back to REPO_URL[#REPO_BRANCH].
+# Back-compat: if REPOS is empty and REPO_URL is set, falls back to REPO_URL[#REPO_BRANCH].
 set -eu
 
 # Started as root (to fix the mounted volume's ownership), then drop to `node`
@@ -20,10 +20,26 @@ fi
 : "${GITHUB_TOKEN:?set GITHUB_TOKEN (repo + workflow scope)}"
 
 REPOS="${REPOS:-}"
-if [ -z "$REPOS" ]; then
-  REPOS="${REPO_URL:-https://github.com/your-org/your-repo.git}#${REPO_BRANCH:-main}"
+if [ -z "$REPOS" ] && [ -n "${REPO_URL:-}" ]; then
+  REPOS="${REPO_URL}#${REPO_BRANCH:-main}"
 fi
 REPO_LIST="$(echo "$REPOS" | tr ',' ' ')"
+
+# Path to the registry-backed list maintained by the control-plane.
+# Format: one "name=URL#branch" line per entry.
+# get_repo_list(): returns a space-separated entry string for use in `for` loops.
+# Prefers the registry file (updated by the control-plane on every registry change)
+# so newly-added repos are picked up within one POLL_SECONDS cycle.
+# Falls back to REPO_LIST when the file doesn't exist yet (first boot, before the
+# control-plane has started for the first time).
+REPOS_LIST_FILE="/workspace/.executr/repos.list"
+get_repo_list() {
+  if [ -s "$REPOS_LIST_FILE" ]; then
+    grep -v '^#' "$REPOS_LIST_FILE" | grep -v '^[[:space:]]*$' | tr '\n' ' '
+  else
+    printf '%s' "$REPO_LIST"
+  fi
+}
 
 git config --global user.name  "${GIT_AUTHOR_NAME:-executr bot}"
 git config --global user.email "${GIT_AUTHOR_EMAIL:-you@example.com}"
@@ -42,8 +58,10 @@ mkdir -p "$HOME/.config/git"
 printf '%s\n' '.build/' '.swiftpm/' '*.swiftmodule' '.ralphex/' > "$HOME/.config/git/ignore"
 git config --global core.excludesfile "$HOME/.config/git/ignore"
 
-# Claude-only for now: execution already goes through Claude Code via fya, and
-# external cross-model review is disabled even if older deploy env still sets it.
+# Ralphex itself stays on the legacy Claude Code/fya path, and external
+# cross-model review is disabled even if older deploy env still sets it. Plans
+# explicitly claimed for another provider are skipped below and handled by the
+# control-plane instead.
 EXTERNAL_REVIEW=none
 export EXTERNAL_REVIEW
 
@@ -68,7 +86,7 @@ cat > "$CLAUDE_DIR/CLAUDE.md" <<'EOF'
 # Required for every plan: CI must pass
 
 A plan is not complete until the project's continuous-integration checks are
-green — GitHub Actions and/or Vercel, whatever that repo uses. Before finalizing,
+green - GitHub Actions and/or Vercel, whatever that repo uses. Before finalizing,
 verify it: `gh` is installed and authenticated (`gh run list`,
 `gh run view --log-failed <run-id>`); check the Vercel deployment status when the
 repo deploys to Vercel. If any check is red, read the failing logs and fix the
@@ -117,6 +135,30 @@ has_executable_sections() {
   grep -Eq '^### (Task|Iteration) [0-9]+:' "$1"
 }
 
+# Additive guard: skip a plan if the control-plane has claimed it for a
+# non-claude-code provider.  Unclaimed plans, expired leases, and explicit
+# claude-code claims all return "run" so the loop is unaffected by default.
+# Reads: CLAIMS_DIR (env, defaults to /workspace/.executr/claims)
+# Args: $1 = repo name, $2 = plan content hash (sha256)
+control_plane_claim_decision() {
+  _repo="$1"; _hash="$2"
+  _cdir="${CLAIMS_DIR:-/workspace/.executr/claims}"
+  _safe_repo="$(printf '%s' "$_repo" | tr -c 'A-Za-z0-9._-' '_')"
+  _claim_file="$_cdir/${_safe_repo}__${_hash}.json"
+  [ -f "$_claim_file" ] || { printf 'run'; return; }
+  # parse leaseUntil and provider with jq (available in the image)
+  _provider="$(jq -r '.provider // empty' "$_claim_file" 2>/dev/null)"
+  _lease="$(jq -r '.leaseUntil // 0' "$_claim_file" 2>/dev/null)"
+  _now="$(date +%s)000"   # milliseconds
+  [ -n "$_provider" ] && [ -n "$_lease" ] || { printf 'run'; return; }
+  # expired lease -> run
+  [ "$_lease" -gt "$_now" ] 2>/dev/null || { printf 'run'; return; }
+  # active claude-code claim -> run (control-plane uses same legacy path)
+  [ "$_provider" = "claude-code" ] && { printf 'run'; return; }
+  # active non-claude-code claim -> skip (control-plane will run this)
+  printf 'skip'
+}
+
 # map a plan path to its state-file stem under the repo's plan-state dir
 plan_state_file() {
   printf '%s/%s' "$1" "$(basename "$2" | tr -c 'A-Za-z0-9._-' '_')"
@@ -157,6 +199,25 @@ for entry in $REPO_LIST; do
   WATCH_ARGS="$WATCH_ARGS --watch $DIR/.ralphex/progress"
 done
 
+# Control-plane service: build and start alongside the ralphex dashboard.
+# Lives inside the self-hosted executr clone at /workspace/executr/control-plane.
+# Starts on CONTROL_PLANE_PORT (default 8090); the ralphex dashboard stays on 8080.
+# Build is synchronous so we always run the latest source; failure is non-fatal —
+# the ralphex loop continues unaffected (the additive guard is already in place).
+_cp_dir="/workspace/executr/control-plane"
+if [ -d "$_cp_dir" ] && [ -f "$_cp_dir/package.json" ]; then
+  echo "executr: building control-plane ..."
+  _cp_ok=1
+  ( cd "$_cp_dir" && pnpm install --prefer-offline 2>&1 || pnpm install 2>&1 ) || _cp_ok=0
+  [ "$_cp_ok" = "1" ] && ( cd "$_cp_dir" && pnpm run build 2>&1 ) || _cp_ok=0
+  if [ "$_cp_ok" = "1" ] && [ -f "$_cp_dir/dist/index.js" ]; then
+    node "$_cp_dir/dist/index.js" &
+    echo "executr: control-plane started on port ${CONTROL_PLANE_PORT:-8090}"
+  else
+    echo "executr: control-plane build failed — skipping (ralphex loop unaffected)"
+  fi
+fi
+
 # dashboard: monitor every repo's progress files (Coolify maps a domain to :8080)
 # Bind 0.0.0.0 (ralphex defaults to 127.0.0.1) so Coolify's reverse proxy and the
 # published port can reach it from outside the container — otherwise it's a 502.
@@ -169,7 +230,7 @@ ralphex --serve --host "${RALPHEX_WEB_HOST:-0.0.0.0}" --port "${RALPHEX_PORT:-80
 # Runs in a forked subshell, so it can't clobber the main loop's parse_entry globals.
 phase_pusher() {
   while true; do
-    for entry in $REPO_LIST; do
+    for entry in $(get_repo_list); do
       parse_entry "$entry"
       [ -d "$DIR/.git" ] || continue
       ( cd "$DIR"
@@ -182,10 +243,9 @@ phase_pusher() {
 }
 phase_pusher &
 
-echo "executr: ralphex execution uses Claude Code via fya; external review disabled"
 echo "executr: watching plans across: $REPOS"
 while true; do
-  for entry in $REPO_LIST; do
+  for entry in $(get_repo_list); do
     parse_entry "$entry"
     [ -d "$DIR" ] || continue
     # refresh from origin each poll so plans/code pushed to the repo are picked up
@@ -205,6 +265,13 @@ while true; do
       if ! has_executable_sections "$plan"; then
         echo "executr: [$NAME] skipping non-executable plan $(basename "$plan") (no '### Task N:' / '### Iteration N:')"
         record_plan_state "$STATE_DIR" "$plan" "$digest" invalid
+        continue
+      fi
+
+      # Additive guard: if the control-plane has claimed this plan for a
+      # non-claude-code provider, skip it here — the control-plane runs it.
+      if [ "$(control_plane_claim_decision "$NAME" "$digest")" = "skip" ]; then
+        echo "executr: [$NAME] skipping $(basename "$plan") — claimed by control-plane (non-claude-code provider)"
         continue
       fi
 

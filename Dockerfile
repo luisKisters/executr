@@ -1,4 +1,4 @@
-# executr — containerized ralphex + fya + agent-browser + Claude Code stack.
+# executr — containerized ralphex + fya + agent-browser + codex/claude stack.
 # Debian base so agent-browser's Chrome-for-Testing (glibc) runs reliably.
 FROM node:22-bookworm
 
@@ -23,9 +23,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && apt-get update && apt-get install -y --no-install-recommends gh \
  && rm -rf /var/lib/apt/lists/*
 
-# --- CLIs: pnpm, Claude Code, agent-browser (verified package names) ---
+# --- CLIs: pnpm, Claude Code, Codex, agent-browser (verified package names) ---
 RUN corepack enable && corepack prepare pnpm@latest --activate
-RUN npm install -g @anthropic-ai/claude-code agent-browser
+RUN npm install -g @anthropic-ai/claude-code @openai/codex agent-browser
 
 # --- fya (Max-plan driver) + ralphex, latest release resolved at build time ---
 # Release assets are versioned (fya_<ver>_linux_<arch>.tar.gz), so resolve the tag first.

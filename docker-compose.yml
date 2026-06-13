@@ -11,19 +11,27 @@ services:
       # --- auth (Coolify secrets; see README) ---
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}    # from `claude setup-token` — keeps the Max plan
       GITHUB_TOKEN: ${GITHUB_TOKEN}                          # repo + workflow scope (push + gh pr create)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}                    # control-plane Codex execution, unless ~/.codex/auth.json is mounted
       GROQ_API_KEY: ${GROQ_API_KEY:-}                        # for the (future) voice ask-human
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}            # ralphex notifications
       # --- behavior ---
-      # Repos to operate on (comma-separated): "name=URL[#branch]" or "URL".
-      # Multiple: REPOS="app=https://github.com/your-org/your-repo.git#main,api=https://github.com/your-org/api.git"
-      REPOS: ${REPOS:-https://github.com/your-org/your-repo.git#main}
+      # Bootstrap repos — optional seed (comma-separated): "name=URL[#branch]" or "URL".
+      # After first boot, manage repos from the control-plane UI; REPOS is only used to
+      # seed the registry on startup. Leave unset once repos are managed via the UI.
+      REPOS: ${REPOS:-}
+      EXTERNAL_REVIEW: "none"                                # legacy ralphex loop keeps external review disabled
       GIT_AUTHOR_NAME: ${GIT_AUTHOR_NAME:-executr bot}
       GIT_AUTHOR_EMAIL: ${GIT_AUTHOR_EMAIL:-you@example.com}
       RALPHEX_PORT: "8080"
+      # --- control-plane (operator UI + orchestrator + Telegram planning) ---
+      CONTROL_PLANE_PASSWORD: ${CONTROL_PLANE_PASSWORD:-}    # single shared password gating the UI/API
+      CONTROL_PLANE_PORT: "${CONTROL_PLANE_PORT:-8090}"       # control-plane port; dashboard stays on 8080
+      TELEGRAM_ALLOWLIST: ${TELEGRAM_ALLOWLIST:-}             # comma-separated Telegram user IDs
     volumes:
       - executr_repo:/workspace          # persistent clone + docs/plans + .ralphex state
     ports:
-      - "8080"                           # Coolify maps a domain to this port
+      - "8080"                           # Coolify maps a domain to ralphex dashboard
+      - "8090"                           # Coolify maps a domain to control-plane UI/API
 
 volumes:
   executr_repo:

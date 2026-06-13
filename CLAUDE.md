@@ -1,8 +1,10 @@
 # executr — operations & debugging guide
 
 This is the deployment layer that runs **ralphex** (the Ralph loop) via **fya** (Max-plan
-Claude driver) + agent-browser, in one container on Coolify. This file is how to debug it
-when a plan looks "stuck". Read top-to-bottom the first time.
+Claude driver), agent-browser, and the executr control-plane in one container on Coolify. The
+control-plane defaults new claimed plans to Codex (`gpt-5.5`, reasoning `xhigh`); unclaimed
+plans still run through the legacy Claude/fya loop. This file is how to debug it when a plan
+looks "stuck". Read top-to-bottom the first time.
 
 ## Access
 
@@ -14,19 +16,22 @@ when a plan looks "stuck". Read top-to-bottom the first time.
   `docker exec -u node -e HOME=/home/node <C> sh -c '…'`. Running git/claude as **root** hits
   git's *"dubious ownership"* and refuses to operate. For `apt`/system installs, use root (default exec).
 - **Dashboard:** https://executr.luiskisters.com (ralphex `--serve`, bound `0.0.0.0`).
-- **Coolify config:** `/data/coolify/services/<id>/` → `docker-compose.yml` + `.env`. `REPOS` lives here
-  (comma-separated `URL`s). Changing it needs a **recreate** (see restart vs redeploy below).
+- **Coolify config:** `/data/coolify/services/<id>/` → `docker-compose.yml` + `.env`. `REPOS` is only
+  a bootstrap seed now; the control-plane registry is the live source of truth.
 
 ## How the loop works
 
-`entrypoint.sh` (baked into the image): clones each repo in `$REPOS`, **seeds Claude config**,
-serves the dashboard, starts a background **phase_pusher** (pushes each repo's feature branch every
-~60s), then loops forever: per repo → `git pull` base branch → run `ralphex` on each new
-`docs/plans/*.md`.
+`entrypoint.sh` (baked into the image): seeds the control-plane registry from `$REPOS` when present,
+starts the control-plane on `CONTROL_PLANE_PORT`, serves the ralphex dashboard, starts a background
+**phase_pusher** (pushes each repo's feature branch every ~60s), then loops forever over
+`/workspace/.executr/repos.list`: per repo → `git pull` base branch → run `ralphex` on each new,
+unclaimed `docs/plans/*.md`.
 
 - **plan-state** (`<repo>/.ralphex/plan-state/<plan>_.{sha256,status}`): each plan runs **once per
   content hash**; status = `completed|failed|invalid`. The loop skips a plan whose hash is unchanged.
   - **Re-run / unstick a plan:** delete its `.sha256` + `.status` files → loop re-runs it within `POLL_SECONDS` (30s).
+- **claims** (`/workspace/.executr/claims` by default): an active claim for a non-`claude-code`
+  provider makes the legacy loop skip that plan so the control-plane provider path owns it.
 - Each task = one ralphex **iteration** = one fya-driven Claude turn. After all tasks →
   **code-review rounds** → **finalize** (push branch + open PR). `finalize` is best-effort: if its
   `git push` hits a non-fast-forward (e.g. after a squash) it gives up — the branch/PR may not appear,
@@ -85,32 +90,30 @@ transcript. Fixed by `~/.claude/settings.json` → `{"skipDangerousModePermissio
 in the image + re-asserted by entrypoint). The entrypoint also pre-accepts onboarding + per-repo
 trust in `~/.claude.json`. If a brand-new run stalls on *every* turn from the start, check these first.
 
-## Swift / macOS plans (e.g. `notetakr`) — these are LIVE-ONLY, not in the image
+## Swift / macOS plans (e.g. `notetakr`) — Swift is now BAKED INTO THE IMAGE
 
-The base image has **no Swift**. For Swift plans the agent's `local-validate` needs a compiler:
+Swift 6.3.2 is baked into the Dockerfile (`ARG SWIFT_VERSION=6.3.2`, native Debian 12 swift.org
+build at `/opt/swift`, symlinked to `/usr/local/bin/swift`), so `local-validate` (`swift test`)
+works out of the box and **a recreate/redeploy no longer re-breaks Swift plans**. History/details:
 
-- Swift 6.3.2 was installed **live** to `/opt/swift` (symlinked `/usr/local/bin/swift`). Debian 12 has
-  a native swift.org build — download it directly (swiftly's auto-install is **broken on Debian**: it
-  builds a URL with a space in it):
-  `curl -fSL https://download.swift.org/swift-6.3.2-release/debian12/swift-6.3.2-RELEASE/swift-6.3.2-RELEASE-debian12.tar.gz` →
-  `tar -xz -C /opt/swift --strip-components=1` → symlink `usr/bin/swift` into `/usr/local/bin`. Needs
-  apt deps (`libpython3-dev libcurl4-openssl-dev libxml2-dev …`).
+- It was originally installed **live** (swiftly's auto-install is **broken on Debian** — it builds a
+  URL with a space), then baked into the image so it survives a recreate. The `~1 GB` layer is the
+  tradeoff (slower image pulls).
 - A **global gitignore** prevents `swift build` output from dirtying the tree (else ralphex refuses to
   create the feature branch): `git config --global core.excludesfile ~/.config/git/ignore` with
-  `.build/`, `.swiftpm/`.
-- **These survive `docker restart` but are WIPED by a recreate/redeploy.** To make durable, bake Swift
-  into the Dockerfile (~1 GB layer).
+  `.build/`, `.swiftpm/` (set by the entrypoint).
 - A macOS `.dmg` can't be built in the Linux container — it's built on the repo's **GitHub Actions
   macOS runner** (`xcodebuild archive` → `hdiutil create`). SwiftPM with no `platforms:` in
   `Package.swift` archives at an ancient macOS target → pass `MACOSX_DEPLOYMENT_TARGET=13.0`.
 
 ## `docker restart` vs Coolify redeploy — KNOW THE DIFFERENCE
 
-| Action | Writable layer (Swift install, global gitignore, live config patches) | Effect |
+| Action | Writable layer (live config patches, caches, `~/.codex` auth, transcripts) | Effect |
 |---|---|---|
 | `docker restart <C>` | **PRESERVED** | Stops+starts the same container; re-runs entrypoint (re-clone/pull, re-seed config, restart dashboard+loop). Kills the current run and restarts the loop. |
-| Coolify **Redeploy** / `docker compose up` / recreate | **WIPED** (fresh container from the image) | Loses any **live-only** change → **re-breaks Swift plans**. Only do this after baking those into the image. |
+| Coolify **Redeploy** / `docker compose up` / recreate | **WIPED** (fresh container from the image) | Loses any **live-only** change. Swift is baked into the image now, so this no longer re-breaks Swift plans — but it still wipes `~/.cache`, Claude transcripts, and live `~/.codex` auth. |
 
-So: a plain **restart is safe** (keeps everything), but **never redeploy/recreate** while a Swift plan
-relies on the live `/opt/swift` install. A restart rarely *helps* a stall — it just restarts the loop
-(and re-runs the in-progress plan from its last committed state); the stall self-heals on its own anyway.
+So: a plain **restart is safe** (keeps everything). A **redeploy/recreate is safe for Swift** now (it's
+baked in) but still throws away caches/transcripts/live auth — only do it when you mean to. A restart
+rarely *helps* a stall — it just restarts the loop (and re-runs the in-progress plan from its last
+committed state); the stall self-heals on its own anyway.

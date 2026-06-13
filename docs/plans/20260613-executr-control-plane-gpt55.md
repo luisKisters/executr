@@ -32,18 +32,18 @@ Current user intent:
 
 ### Task 1: Restore and reconcile the control-plane implementation
 
-- [ ] Restore `control-plane/` from `origin/t3code/a00a0868`.
-- [ ] Restore the control-plane docs/plans from `origin/t3code/a00a0868`, but keep
+- [x] Restore `control-plane/` from `origin/t3code/a00a0868`.
+- [x] Restore the control-plane docs/plans from `origin/t3code/a00a0868`, but keep
       completed work under `docs/plans/completed/` and keep follow-up plans top-level.
-- [ ] Reconcile `Dockerfile`, `docker-compose.yml`, `.env.example`, `README.md`,
+- [x] Reconcile `Dockerfile`, `docker-compose.yml`, `.env.example`, `README.md`,
       `CLAUDE.md`, and `entrypoint.sh` with current `main`.
-- [ ] Re-add the Codex CLI only where required for the requested GPT execution path.
-- [ ] Ensure the default control-plane provider/model is `codex` with model
+- [x] Re-add the Codex CLI only where required for the requested GPT execution path.
+- [x] Ensure the default control-plane provider/model is `codex` with model
       `gpt-5.5` and reasoning effort `xhigh`, while the legacy watch loop remains
       explicit and predictable.
-- [ ] Preserve the current requirement that ralphex execution can run without
+- [x] Preserve the current requirement that ralphex execution can run without
       external review unless a plan explicitly chooses another provider.
-- [ ] Run the validation commands and fix every failure.
+- [x] Run the validation commands and fix every failure.
 
 ### Task 2: Prove the control-plane runs
 
