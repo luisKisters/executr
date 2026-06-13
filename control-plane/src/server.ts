@@ -1,6 +1,7 @@
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import cookie from '@fastify/cookie';
 import formbody from '@fastify/formbody';
+import { randomBytes } from 'node:crypto';
 import type { Config } from './config';
 import {
   renderLoginPage,
@@ -79,12 +80,16 @@ export async function createServer(
       workspaceRoot: config.workspaceRoot,
       claimsDir: config.claimsDir,
       runner: codexRunner,
+      scheduler: schedulerEnabled ? scheduler : undefined,
     });
   }
   const poller = new ObserverPoller(_db, { workspaceRoot: config.workspaceRoot });
   const recoveryPoller = new RecoveryPoller(_db, {
     workspaceRoot: config.workspaceRoot,
     onApprovalRequest: request => { void telegramBot?.sendApprovalRequest(request); },
+    onProviderSwitch: schedulerEnabled
+      ? (execution, trigger) => scheduler.scheduleProviderSwitchRetry(execution, trigger)
+      : undefined,
   });
   if (startObserver) {
     app.addHook('onReady', async () => {
@@ -99,8 +104,10 @@ export async function createServer(
     });
   }
 
+  const sessionSigningSecret =
+    config.sessionSecret || randomBytes(32).toString('hex');
   await app.register(cookie, {
-    secret: config.sessionSecret || 'default-insecure-secret-change-me',
+    secret: sessionSigningSecret,
   });
   await app.register(formbody);
 
@@ -109,7 +116,7 @@ export async function createServer(
     if (isPublicPath(pathname)) return;
 
     const raw = request.cookies[SESSION_COOKIE];
-    if (raw) {
+    if (config.password && raw) {
       const result = request.unsignCookie(raw);
       if (result.valid && result.value === SESSION_VALUE) return;
     }
@@ -128,7 +135,7 @@ export async function createServer(
 
   app.get('/login', async (request, reply) => {
     const raw = request.cookies[SESSION_COOKIE];
-    if (raw) {
+    if (config.password && raw) {
       const result = request.unsignCookie(raw);
       if (result.valid && result.value === SESSION_VALUE) {
         return reply.redirect('/');

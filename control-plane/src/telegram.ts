@@ -14,6 +14,8 @@ import {
 } from './db';
 import type { AgentRunner, PlanningSession } from './providers';
 import { submitRawPlan } from './planCreation';
+import { DEFAULT_CONTROL_PLANE_PROVIDER } from './contracts';
+import type { CreatedPlanExecution } from './executor';
 
 // ── Minimal Telegram API types ─────────────────────────────────────────
 
@@ -40,6 +42,9 @@ export interface TgUpdate {
 
 export type SendMessageFn = (chatId: number, text: string) => Promise<void>;
 export type GetUpdatesFn = (offset: number, timeout?: number) => Promise<TgUpdate[]>;
+export interface TelegramPlanScheduler {
+  scheduleCreatedPlan(plan: CreatedPlanExecution): void;
+}
 
 // ── Config ─────────────────────────────────────────────────────────────
 
@@ -93,6 +98,7 @@ export class TelegramBot {
   private readonly workspaceRoot: string;
   private readonly claimsDir: string;
   private readonly runner: AgentRunner | null;
+  private readonly scheduler: TelegramPlanScheduler | null;
   private readonly sendMessageFn: SendMessageFn;
   private readonly getUpdatesFn: GetUpdatesFn;
   private running = false;
@@ -104,6 +110,7 @@ export class TelegramBot {
     workspaceRoot: string;
     claimsDir: string;
     runner?: AgentRunner;
+    scheduler?: TelegramPlanScheduler;
     sendMessage?: SendMessageFn;
     getUpdates?: GetUpdatesFn;
   }) {
@@ -112,6 +119,7 @@ export class TelegramBot {
     this.workspaceRoot = opts.workspaceRoot;
     this.claimsDir = opts.claimsDir;
     this.runner = opts.runner ?? null;
+    this.scheduler = opts.scheduler ?? null;
     this.sendMessageFn = opts.sendMessage ?? makeDefaultSendMessage(opts.config.botToken);
     this.getUpdatesFn = opts.getUpdates ?? makeDefaultGetUpdates(opts.config.botToken);
   }
@@ -371,6 +379,13 @@ export class TelegramBot {
       await this.reply(msg.chat.id, `Submission failed: ${outcome.error}`);
       return;
     }
+
+    this.scheduler?.scheduleCreatedPlan({
+      repo: session.targetRepo,
+      fileName: outcome.fileName,
+      planHash: outcome.planHash,
+      requestedProvider: DEFAULT_CONTROL_PLANE_PROVIDER,
+    });
 
     updateTelegramSession(this.db, session.id, { status: 'submitted', isCurrent: false });
     await this.reply(msg.chat.id, `Plan "${outcome.planName}" submitted to ${session.targetRepo}!`);

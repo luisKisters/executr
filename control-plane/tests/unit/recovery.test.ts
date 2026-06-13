@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import {
   decideRecovery,
   executeRecovery,
+  RecoveryPoller,
   fixGitExcludes,
   isSafeGitBranchName,
   MAX_AUTO_RETRIES,
@@ -203,6 +204,15 @@ describe('decideRecovery — auth_missing', () => {
     const r = decideRecovery(baseCtx({ classification: 'auth_missing' }));
     expect(r.type).toBe('switch_provider');
   });
+
+  it('requests approval after repeated provider-switch attempts', () => {
+    const r = decideRecovery(baseCtx({
+      classification: 'auth_missing',
+      attemptCounts: { switch_provider: MAX_AUTO_RETRIES },
+    }));
+    expect(r.type).toBe('request_approval');
+    expect((r as { action: string }).action).toBe('provider_auth_missing');
+  });
 });
 
 // ── decideRecovery — known_startup_stall ──────────────────────────────────
@@ -239,8 +249,8 @@ describe('decideRecovery — known_startup_stall', () => {
         classification: 'known_startup_stall',
         attemptCounts: { startup_stall: stalls },
       }));
-      // The only allowed types are wait or switch_provider — never any kill action
-      expect(['wait', 'switch_provider']).toContain(r.type);
+      // The only allowed types are wait, switch_provider, or a manual approval gate.
+      expect(['wait', 'switch_provider', 'request_approval']).toContain(r.type);
       // Specifically must not be request_approval for a kill action
       if (r.type === 'request_approval') {
         const action = (r as { action: string }).action;
@@ -248,6 +258,18 @@ describe('decideRecovery — known_startup_stall', () => {
         expect(action).not.toContain('terminate');
       }
     }
+  });
+
+  it('requests approval after repeated provider-switch attempts', () => {
+    const r = decideRecovery(baseCtx({
+      classification: 'known_startup_stall',
+      attemptCounts: {
+        startup_stall: STARTUP_STALL_REPEAT_THRESHOLD,
+        switch_provider: MAX_AUTO_RETRIES,
+      },
+    }));
+    expect(r.type).toBe('request_approval');
+    expect((r as { action: string }).action).toBe('manual_provider_switch');
   });
 });
 
@@ -428,6 +450,36 @@ describe('executeRecovery — switch_provider', () => {
     expect(result.success).toBe(true);
     const updated = getExecutionByAttemptId(db, attemptId);
     expect(updated?.lastRecoveryAction).toContain('switch_provider');
+    db.close();
+  });
+});
+
+// ── RecoveryPoller — provider switch hook ─────────────────────────────────
+
+describe('RecoveryPoller — provider switch hook', () => {
+  it('notifies scheduler hook when auth_missing requests a provider switch', () => {
+    const db = makeDb();
+    insertExecution(db, {
+      repo: 'r', planFile: 'p.md', planHash: 'h', attemptId: 'att-switch-hook',
+      providerRequested: 'claude-code', providerUsed: 'claude-code', model: null,
+      branch: 'feature/p', worktree: null, status: 'running',
+      latestProgressTs: null, latestTranscriptTs: null,
+      rateLimitCooldownUntil: null, lastRecoveryAction: null,
+      classification: 'auth_missing',
+      createdAt: NOW, updatedAt: NOW,
+    });
+
+    const calls: Array<{ attemptId: string; trigger: string }> = [];
+    const poller = new RecoveryPoller(db, {
+      workspaceRoot: '/tmp/workspace',
+      onProviderSwitch: (execution, trigger) => {
+        calls.push({ attemptId: execution.attemptId, trigger });
+      },
+    });
+
+    poller.poll();
+
+    expect(calls).toEqual([{ attemptId: 'att-switch-hook', trigger: 'provider_auth_unavailable' }]);
     db.close();
   });
 });

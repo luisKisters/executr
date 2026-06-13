@@ -62,6 +62,14 @@ export function buildGitFetchArgs(): string[] {
   return ['fetch', '--all'];
 }
 
+export function buildGitRemoteGetUrlArgs(): string[] {
+  return ['remote', 'get-url', 'origin'];
+}
+
+export function buildGitCurrentBranchArgs(): string[] {
+  return ['rev-parse', '--abbrev-ref', 'HEAD'];
+}
+
 function defaultGitExec(args: string[], cwd?: string): { ok: boolean; output: string } {
   const result = spawnSync('git', args, {
     cwd,
@@ -98,7 +106,33 @@ export function addRepo(
   const isCloned = existsSync(join(targetPath, '.git'));
 
   if (isCloned) {
-    // Repo already cloned on disk: re-fetch regardless of registry state
+    const originResult = gitExec(buildGitRemoteGetUrlArgs(), targetPath);
+    if (!originResult.ok) {
+      return { ok: false, error: `Existing clone origin check failed: ${originResult.output}`, statusCode: 500 };
+    }
+    const existingOrigin = originResult.output.trim();
+    if (existingOrigin !== gitUrl) {
+      return {
+        ok: false,
+        error: `Existing clone origin mismatch: ${existingOrigin} does not match ${gitUrl}`,
+        statusCode: 409,
+      };
+    }
+
+    const branchResult = gitExec(buildGitCurrentBranchArgs(), targetPath);
+    if (!branchResult.ok) {
+      return { ok: false, error: `Existing clone branch check failed: ${branchResult.output}`, statusCode: 500 };
+    }
+    const existingBranch = branchResult.output.trim();
+    if (existingBranch !== branch) {
+      return {
+        ok: false,
+        error: `Existing clone branch mismatch: ${existingBranch} does not match ${branch}`,
+        statusCode: 409,
+      };
+    }
+
+    // Repo already cloned on disk and matches the requested registry entry: re-fetch.
     const result = gitExec(buildGitFetchArgs(), targetPath);
     if (!result.ok) {
       return { ok: false, error: `Re-fetch failed: ${result.output}`, statusCode: 500 };

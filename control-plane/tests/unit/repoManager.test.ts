@@ -223,6 +223,8 @@ describe('addRepo', () => {
 
     let capturedArgs: string[] = [];
     const mockGit: GitExecFn = (args, _cwd) => {
+      if (args[0] === 'remote') return { ok: true, output: 'https://github.com/x/existingrepo.git' };
+      if (args[0] === 'rev-parse') return { ok: true, output: 'main' };
       capturedArgs = args;
       return { ok: true, output: '' };
     };
@@ -237,14 +239,66 @@ describe('addRepo', () => {
     db.close();
   });
 
+  it('rejects re-add when existing clone origin differs', () => {
+    const db = openDatabase(dbPath);
+    const repoPath = join(workspaceRoot, 'existingrepo');
+    mkdirSync(join(repoPath, '.git'), { recursive: true });
+
+    const mockGit: GitExecFn = (args, _cwd) => {
+      if (args[0] === 'remote') return { ok: true, output: 'https://github.com/other/repo.git' };
+      return { ok: true, output: '' };
+    };
+
+    const result = addRepo(
+      workspaceRoot, db,
+      { name: 'existingrepo', gitUrl: 'https://github.com/x/existingrepo.git' },
+      mockGit
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain('origin mismatch');
+      expect(result.statusCode).toBe(409);
+    }
+    db.close();
+  });
+
+  it('rejects re-add when existing clone branch differs', () => {
+    const db = openDatabase(dbPath);
+    const repoPath = join(workspaceRoot, 'existingrepo');
+    mkdirSync(join(repoPath, '.git'), { recursive: true });
+
+    const mockGit: GitExecFn = (args, _cwd) => {
+      if (args[0] === 'remote') return { ok: true, output: 'https://github.com/x/existingrepo.git' };
+      if (args[0] === 'rev-parse') return { ok: true, output: 'develop' };
+      return { ok: true, output: '' };
+    };
+
+    const result = addRepo(
+      workspaceRoot, db,
+      { name: 'existingrepo', gitUrl: 'https://github.com/x/existingrepo.git', branch: 'main' },
+      mockGit
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain('branch mismatch');
+      expect(result.statusCode).toBe(409);
+    }
+    db.close();
+  });
+
   it('returns error on re-fetch failure', () => {
     const db = openDatabase(dbPath);
     const repoPath = join(workspaceRoot, 'fetchfail');
     mkdirSync(join(repoPath, '.git'), { recursive: true });
+    const mockGit: GitExecFn = (args, _cwd) => {
+      if (args[0] === 'remote') return { ok: true, output: 'https://github.com/x/fetchfail.git' };
+      if (args[0] === 'rev-parse') return { ok: true, output: 'main' };
+      return { ok: false, output: 'network error' };
+    };
     const result = addRepo(
       workspaceRoot, db,
       { name: 'fetchfail', gitUrl: 'https://github.com/x/fetchfail.git' },
-      makeFailGitExec('network error')
+      mockGit
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {

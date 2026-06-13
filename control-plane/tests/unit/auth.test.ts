@@ -146,6 +146,17 @@ describe('auth middleware', () => {
     expect(res.headers.location).toBe('/login');
   });
 
+  it('does not accept any session cookie when password auth is disabled', async () => {
+    const app = await createServer({ ...baseConfig, password: '', sessionSecret: '' });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/',
+      headers: { cookie: 'cp_session=authenticated.anything' },
+    });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe('/login');
+  });
+
   it('redirects /login back to / when already authenticated', async () => {
     const app = await createServer(baseConfig);
 

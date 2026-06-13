@@ -89,20 +89,25 @@ export function isActiveClaim(claim: Claim | null, now = Date.now()): boolean {
 
 export async function acquireLock(repo: string, planHash: string): Promise<() => void> {
   const key = lockKey(repo, planHash);
-  const existing = activeLocks.get(key);
-  if (existing) {
-    await existing;
-  }
+  const previous = activeLocks.get(key) ?? Promise.resolve();
 
   let release!: () => void;
-  const lockPromise = new Promise<void>((resolve) => {
+  const current = new Promise<void>((resolve) => {
     release = resolve;
   });
-  activeLocks.set(key, lockPromise);
+  const tail = previous.then(() => current);
+  activeLocks.set(key, tail);
 
+  await previous;
+
+  let released = false;
   return () => {
-    activeLocks.delete(key);
+    if (released) return;
+    released = true;
     release();
+    if (activeLocks.get(key) === tail) {
+      activeLocks.delete(key);
+    }
   };
 }
 

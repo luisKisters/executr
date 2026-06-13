@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execSync } from 'node:child_process';
@@ -18,9 +18,11 @@ function gitInit(dir: string): void {
 class FakeCodexRunner implements AgentRunner {
   readonly providerName = 'codex' as const;
   calls: Array<{ repo: string; planPath: string; config: AttemptConfig }> = [];
+  planExistedAtRun: boolean[] = [];
 
   async runPlan(repo: string, planPath: string, config: AttemptConfig): Promise<AttemptResult> {
     this.calls.push({ repo, planPath, config });
+    this.planExistedAtRun.push(existsSync(join(repo, planPath)));
     const now = new Date().toISOString();
     return {
       status: 'completed',
@@ -56,6 +58,7 @@ function setup(): { root: string; db: OrchestratorDB; claimsDir: string } {
   mkdirSync(join(repo, 'docs', 'plans'), { recursive: true });
   writeFileSync(join(repo, 'docs', 'plans', 'test-plan.md'), '# Plan: Test\n\n## Validation Commands\n\n```\npnpm test\n```\n\n### Task 1: Do\n\n- [ ] It\n');
   gitInit(repo);
+  execSync('git add docs/plans/test-plan.md && git commit -m "add test plan"', { cwd: repo, stdio: 'ignore' });
   const db = openDatabase(join(root, '.executr', 'orchestrator.db'));
   return { root, db, claimsDir: join(root, '.executr', 'claims') };
 }
@@ -89,8 +92,10 @@ describe('ExecutionScheduler', () => {
 
       expect(result).toBe('started');
       expect(runner.calls).toHaveLength(1);
-      expect(runner.calls[0].repo).toBe(join(root, 'repo'));
+      expect(runner.calls[0].repo).toMatch(new RegExp(`${join(root, '.executr', 'worktrees', 'repo', 'test-plan-').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[a-f0-9-]+`));
       expect(runner.calls[0].planPath).toBe(join('docs', 'plans', 'test-plan.md'));
+      expect(runner.planExistedAtRun[0]).toBe(true);
+      expect(existsSync(runner.calls[0].repo)).toBe(false);
       expect(readClaim(claimsDir, 'repo', 'hash123')).toBeNull();
 
       const [execution] = listExecutions(db);
@@ -99,6 +104,7 @@ describe('ExecutionScheduler', () => {
       expect(execution.providerUsed).toBe('codex');
       expect(execution.model).toBe('fake-model');
       expect(execution.classification).toBe('healthy');
+      expect(execution.worktree).toBe(runner.calls[0].repo);
     } finally {
       db.close();
       rmSync(root, { recursive: true, force: true });
@@ -126,4 +132,3 @@ describe('ExecutionScheduler', () => {
     }
   });
 });
-

@@ -1,4 +1,4 @@
-import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
+import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, basename } from 'node:path';
@@ -80,7 +80,64 @@ export type SpawnFn = (
   cmd: string,
   args: string[],
   opts: { cwd?: string; encoding: 'utf8' }
-) => SpawnSyncReturns<string>;
+) => SpawnSyncReturns<string> | Promise<SpawnResult>;
+
+export interface SpawnResult {
+  stdout: string;
+  stderr: string;
+  status: number | null;
+  error?: Error;
+  signal?: NodeJS.Signals | null;
+}
+
+function normalizeSpawnResult(result: SpawnSyncReturns<string> | SpawnResult): SpawnResult {
+  return {
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? '',
+    status: result.status,
+    error: result.error,
+    signal: 'signal' in result ? result.signal : null,
+  };
+}
+
+async function runSpawnFn(
+  fn: SpawnFn,
+  cmd: string,
+  args: string[],
+  opts: { cwd?: string; encoding: 'utf8' }
+): Promise<SpawnResult> {
+  return normalizeSpawnResult(await fn(cmd, args, opts));
+}
+
+function spawnAsync(
+  cmd: string,
+  args: string[],
+  opts: { cwd?: string; encoding: 'utf8' }
+): Promise<SpawnResult> {
+  return new Promise(resolve => {
+    const child = spawn(cmd, args, {
+      cwd: opts.cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+
+    child.stdout.setEncoding(opts.encoding);
+    child.stderr.setEncoding(opts.encoding);
+    child.stdout.on('data', chunk => { stdout += chunk; });
+    child.stderr.on('data', chunk => { stderr += chunk; });
+
+    const finish = (status: number | null, signal: NodeJS.Signals | null, error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      resolve({ stdout, stderr, status, signal, error });
+    };
+
+    child.on('error', err => finish(null, null, err));
+    child.on('close', (status, signal) => finish(status, signal));
+  });
+}
 
 // ── argv builders (pure, no side-effects, directly testable) ───────────────
 
@@ -317,7 +374,7 @@ export class ClaudeCodeRunner implements AgentRunner {
   }
 
   async availability(): Promise<ProviderStatus> {
-    const result = this.spawnFn(this.claudePath, ['--version'], { encoding: 'utf8' });
+    const result = await runSpawnFn(this.spawnFn, this.claudePath, ['--version'], { encoding: 'utf8' });
     if (result.error || result.status !== 0) {
       return { available: false, reason: 'auth_missing' };
     }
@@ -327,7 +384,7 @@ export class ClaudeCodeRunner implements AgentRunner {
   async runPlan(repo: string, planPath: string, config: AttemptConfig): Promise<AttemptResult> {
     const now = new Date().toISOString();
     const argv = buildFyaArgv({ planRelPath: planPath, fyaPath: this.fyaPath });
-    const result = this.spawnFn(this.ralphexPath, argv, { cwd: repo, encoding: 'utf8' });
+    const result = await runSpawnFn(this.spawnFn, this.ralphexPath, argv, { cwd: repo, encoding: 'utf8' });
     const status = result.error || result.status !== 0 ? 'failed' : 'completed';
     return {
       status,
@@ -347,13 +404,14 @@ export class ClaudeCodeRunner implements AgentRunner {
   async inspect(repo: string, question: string, mode: InspectionMode): Promise<InspectionResult> {
     const args = ['-p', question, '--dangerously-skip-permissions'];
     if (mode === 'readonly') args.push('--no-file-access');
-    const result = this.spawnFn(this.claudePath, args, { cwd: repo, encoding: 'utf8' });
+    const result = await runSpawnFn(this.spawnFn, this.claudePath, args, { cwd: repo, encoding: 'utf8' });
     return { question, answer: result.stdout ?? '', mode, provider: 'claude-code' };
   }
 
   async draftPlan(session: PlanningSession, repo: string): Promise<DraftPlanResult> {
     const prompt = buildDraftPlanPrompt(session);
-    const result = this.spawnFn(
+    const result = await runSpawnFn(
+      this.spawnFn,
       this.claudePath,
       ['-p', prompt, '--dangerously-skip-permissions'],
       { cwd: repo, encoding: 'utf8' }
@@ -377,14 +435,14 @@ export class CodexRunner implements AgentRunner {
     model?: string;
     reasoningEffort?: string;
   } = {}) {
-    this.spawnFn = opts.spawnFn ?? (spawnSync as SpawnFn);
+    this.spawnFn = opts.spawnFn ?? spawnAsync;
     this.codexPath = opts.codexPath ?? 'codex';
     this.model = opts.model ?? DEFAULT_CODEX_MODEL;
     this.reasoningEffort = opts.reasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT;
   }
 
   async availability(): Promise<ProviderStatus> {
-    const result = this.spawnFn(this.codexPath, ['--version'], { encoding: 'utf8' });
+    const result = await runSpawnFn(this.spawnFn, this.codexPath, ['--version'], { encoding: 'utf8' });
     if (result.error || result.status !== 0) {
       return { available: false, reason: 'tool_missing' };
     }
@@ -456,7 +514,7 @@ export class CodexRunner implements AgentRunner {
       });
 
       // First run
-      const result1 = this.spawnFn(this.codexPath, argv, { cwd: repo, encoding: 'utf8' });
+      const result1 = await runSpawnFn(this.spawnFn, this.codexPath, argv, { cwd: repo, encoding: 'utf8' });
       const exitCode1 = result1.status;
       const stdout1 = result1.stdout ?? '';
       const stderr1 = result1.stderr ?? '';
@@ -501,7 +559,7 @@ export class CodexRunner implements AgentRunner {
       if (!parsed) {
         appendProgressLog(progressFile, 'CodexRunner: attempt-result missing/malformed, retrying');
 
-        const result2 = this.spawnFn(this.codexPath, argv, { cwd: repo, encoding: 'utf8' });
+        const result2 = await runSpawnFn(this.spawnFn, this.codexPath, argv, { cwd: repo, encoding: 'utf8' });
         const exitCode2 = result2.status;
         const stdout2 = result2.stdout ?? '';
         const stderr2 = result2.stderr ?? '';
@@ -570,7 +628,7 @@ export class CodexRunner implements AgentRunner {
       model: this.model,
       reasoningEffort: this.reasoningEffort,
     });
-    const result = this.spawnFn(this.codexPath, args, { cwd: repo, encoding: 'utf8' });
+    const result = await runSpawnFn(this.spawnFn, this.codexPath, args, { cwd: repo, encoding: 'utf8' });
     return { question, answer: result.stdout ?? '', mode, provider: 'codex' };
   }
 
@@ -582,7 +640,7 @@ export class CodexRunner implements AgentRunner {
       model: this.model,
       reasoningEffort: this.reasoningEffort,
     });
-    const result = this.spawnFn(this.codexPath, args, { cwd: repo, encoding: 'utf8' });
+    const result = await runSpawnFn(this.spawnFn, this.codexPath, args, { cwd: repo, encoding: 'utf8' });
     return parseDraftPlanOutput(result.stdout ?? '', session.sessionName);
   }
 }

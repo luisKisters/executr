@@ -3,6 +3,7 @@ import { execFileSync, execSync, type ExecFileSyncOptions } from 'node:child_pro
 import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ClassificationSignal } from './contracts';
+import type { ProviderSwitchTrigger } from './providers';
 import type { OrchestratorDB } from './db';
 import {
   insertApprovalRequest,
@@ -12,6 +13,7 @@ import {
   getRunningExecutions,
   getExecutionByAttemptId,
   listApprovalRequests,
+  type ExecutionRow,
   type ApprovalRequestRow,
 } from './db';
 
@@ -134,6 +136,14 @@ export function decideRecovery(ctx: RecoveryContext): RecoveryAction {
     }
 
     case 'auth_missing': {
+      const attempts = attemptCounts['switch_provider'] ?? 0;
+      if (attempts >= MAX_AUTO_RETRIES) {
+        return {
+          type: 'request_approval',
+          action: 'provider_auth_missing',
+          context: `Provider auth is still missing for "${ctx.repo}" / "${ctx.planSlug}" after ${MAX_AUTO_RETRIES} provider-switch attempts. Administrator intervention required.`,
+        };
+      }
       return { type: 'switch_provider', reason: `Provider auth missing for "${ctx.planSlug}"; switching to next available provider` };
     }
 
@@ -144,6 +154,13 @@ export function decideRecovery(ctx: RecoveryContext): RecoveryAction {
         return { type: 'wait', reason: 'known_startup_stall — waiting for 30-minute self-heal (do not kill externally)' };
       }
       // After repeated stalls consider a provider switch (still not a kill)
+      if ((attemptCounts['switch_provider'] ?? 0) >= MAX_AUTO_RETRIES) {
+        return {
+          type: 'request_approval',
+          action: 'manual_provider_switch',
+          context: `Repeated startup stalls for "${ctx.repo}" / "${ctx.planSlug}" exceeded automatic provider-switch attempts. Manual intervention required.`,
+        };
+      }
       return { type: 'switch_provider', reason: `Repeated startup stalls (${stalls}) for "${ctx.planSlug}"; switching provider` };
     }
 
@@ -286,6 +303,7 @@ export function executeRecovery(
     }
 
     case 'switch_provider': {
+      incrementRecoveryAttemptCount(db, ctx.attemptId, 'switch_provider');
       const msg = `Provider switch requested: ${decision.reason}`;
       setLastRecoveryAction(db, ctx.attemptId, `switch_provider: ${msg}`);
       return { action: decision, success: true, message: msg };
@@ -325,6 +343,7 @@ export interface RecoveryPollOptions {
   workspaceRoot: string;
   intervalMs?: number;
   onApprovalRequest?: (request: ApprovalRequestRow) => void;
+  onProviderSwitch?: (execution: ExecutionRow, trigger: ProviderSwitchTrigger) => void;
 }
 
 export class RecoveryPoller {
@@ -333,6 +352,7 @@ export class RecoveryPoller {
     workspaceRoot: string;
     intervalMs: number;
     onApprovalRequest?: (request: ApprovalRequestRow) => void;
+    onProviderSwitch?: (execution: ExecutionRow, trigger: ProviderSwitchTrigger) => void;
   };
   private timer: ReturnType<typeof setInterval> | null = null;
   private readonly execFn: ExecFn;
@@ -343,6 +363,7 @@ export class RecoveryPoller {
       workspaceRoot: opts.workspaceRoot,
       intervalMs: opts.intervalMs ?? RECOVERY_POLL_INTERVAL_MS,
       onApprovalRequest: opts.onApprovalRequest,
+      onProviderSwitch: opts.onProviderSwitch,
     };
     this.execFn = execFn ?? defaultExecFn;
   }
@@ -409,6 +430,10 @@ export class RecoveryPoller {
 
           const decision = decideRecovery(ctx);
           const result = executeRecovery(decision, ctx, this.db, this.execFn);
+          const trigger = providerSwitchTrigger(decision, classification);
+          if (result.success && trigger && this.opts.onProviderSwitch) {
+            this.opts.onProviderSwitch(fresh, trigger);
+          }
           if (result.approvalRequestId && this.opts.onApprovalRequest) {
             const request = listApprovalRequests(this.db).find(r => r.id === result.approvalRequestId);
             if (request) this.opts.onApprovalRequest(request);
@@ -421,6 +446,19 @@ export class RecoveryPoller {
       // Polling must never throw
     }
   }
+}
+
+function providerSwitchTrigger(
+  decision: RecoveryAction,
+  classification: ClassificationSignal
+): ProviderSwitchTrigger | null {
+  if (decision.type === 'set_cooldown' && decision.switchProvider) {
+    return 'provider_rate_limited';
+  }
+  if (decision.type !== 'switch_provider') return null;
+  if (classification === 'auth_missing') return 'provider_auth_unavailable';
+  if (classification === 'known_startup_stall') return 'startup_stall_repeated';
+  return null;
 }
 
 // ── Dirty tree check (inline for recovery context) ─────────────────────────

@@ -158,6 +158,34 @@ describe('acquireLock / isLockHeld', () => {
     expect(secondLockAcquired).toBe(true);
   });
 
+  it('queues more than one waiter for the same lock', async () => {
+    const release1 = await acquireLock('repo', 'planA');
+    const order: string[] = [];
+
+    const lock2Promise = acquireLock('repo', 'planA').then((release2) => {
+      order.push('second');
+      return release2;
+    });
+    const lock3Promise = acquireLock('repo', 'planA').then((release3) => {
+      order.push('third');
+      return release3;
+    });
+
+    await new Promise(r => setTimeout(r, 10));
+    expect(order).toEqual([]);
+
+    release1();
+    const release2 = await lock2Promise;
+    await new Promise(r => setTimeout(r, 10));
+    expect(order).toEqual(['second']);
+
+    release2();
+    const release3 = await lock3Promise;
+    expect(order).toEqual(['second', 'third']);
+    release3();
+    expect(isLockHeld('repo', 'planA')).toBe(false);
+  });
+
   it('locks for different (repo, planHash) pairs are independent', async () => {
     const releaseA = await acquireLock('repo', 'planA');
     const releaseB = await acquireLock('repo', 'planB');

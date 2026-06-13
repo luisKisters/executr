@@ -37,6 +37,7 @@ function gitInit(dir: string): void {
 function makeBot(opts: {
   allowlist?: number[];
   runner?: Parameters<typeof TelegramBot>[0]['runner'];
+  scheduler?: Parameters<typeof TelegramBot>[0]['scheduler'];
 } = {}): TelegramBot {
   return new TelegramBot({
     config: { botToken: 'fake-token', allowlist: opts.allowlist ?? [ALLOWED_USER] },
@@ -44,6 +45,7 @@ function makeBot(opts: {
     workspaceRoot: tmpDir,
     claimsDir: join(tmpDir, '.executr', 'claims'),
     runner: opts.runner,
+    scheduler: opts.scheduler,
     sendMessage: mockSend,
     getUpdates: async () => [],
   });
@@ -369,14 +371,19 @@ describe('/plan', () => {
 // ── /submit ───────────────────────────────────────────────────────────────
 
 describe('/submit', () => {
-  it('writes draft plan and marks session as submitted', async () => {
+  it('writes draft plan, schedules execution, and marks session as submitted', async () => {
     // Create a fixture repo with docs/plans dir
     const repoDir = join(tmpDir, 'myrepo');
     mkdirSync(join(repoDir, 'docs', 'plans'), { recursive: true });
     gitInit(repoDir);
 
     const DRAFT = '# Plan: My Feature\n\n## Validation Commands\n\n```\npnpm test\n```\n\n### Task 1: Build it\n\n- [ ] Do the thing\n';
-    const bot = makeBot();
+    const scheduled: Array<{ repo: string; fileName: string; planHash: string; requestedProvider: string }> = [];
+    const bot = makeBot({
+      scheduler: {
+        scheduleCreatedPlan: plan => { scheduled.push(plan); },
+      },
+    });
     await bot.handleUpdate(makeUpdate('/session new SubmitTest'));
     await bot.handleUpdate(makeUpdate('/repo myrepo'));
     // Manually set draft plan in DB
@@ -392,6 +399,10 @@ describe('/submit', () => {
     const submitted = getTelegramSessionsForUser(db, ALLOWED_USER).find(s => s.sessionName === 'SubmitTest');
     expect(submitted?.status).toBe('submitted');
     expect(submitted?.isCurrent).toBe(false);
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0].repo).toBe('myrepo');
+    expect(scheduled[0].fileName).toBe('my-feature.md');
+    expect(scheduled[0].requestedProvider).toBe('codex');
     expect(sent[0].text).toContain('submitted');
   });
 
