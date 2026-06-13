@@ -24,14 +24,23 @@ looks "stuck". Read top-to-bottom the first time.
 `entrypoint.sh` (baked into the image): seeds the control-plane registry from `$REPOS` when present,
 starts the control-plane on `CONTROL_PLANE_PORT`, serves the ralphex dashboard, starts a background
 **phase_pusher** (pushes each repo's feature branch every ~60s), then loops forever over
-`/workspace/.executr/repos.list`: per repo → `git pull` base branch → run `ralphex` on each new,
-unclaimed `docs/plans/*.md`.
+`/workspace/.executr/repos.list`: per repo → ensure clone/init → `git pull` base branch → run
+`ralphex` on each new, unclaimed `docs/plans/*.md`.
 
-- **plan-state** (`<repo>/.ralphex/plan-state/<plan>_.{sha256,status}`): each plan runs **once per
+- **control-plane state** (`/workspace/.executr/orchestrator.db` by default): SQLite registry,
+  execution rows, approval requests, provider policy state, and Telegram sessions. Inspect with
+  `sqlite3 /workspace/.executr/orchestrator.db`.
+- **repo registry bridge** (`/workspace/.executr/repos.list`): active registry repos in
+  `name=URL#branch` format for the shell loop. If the loop is not seeing a repo, inspect this file
+  first.
+- **plan-state** (`<repo>/.ralphex/plan-state/<plan>.md_.{sha256,status}`): each plan runs **once per
   content hash**; status = `completed|failed|invalid`. The loop skips a plan whose hash is unchanged.
   - **Re-run / unstick a plan:** delete its `.sha256` + `.status` files → loop re-runs it within `POLL_SECONDS` (30s).
 - **claims** (`/workspace/.executr/claims` by default): an active claim for a non-`claude-code`
   provider makes the legacy loop skip that plan so the control-plane provider path owns it.
+- **observer/recovery pollers:** the control-plane process classifies running executions every
+  ~45s and runs recovery checks every ~60s. Approval requests appear in the Activity UI and can be
+  decided from the UI or Telegram.
 - Each task = one ralphex **iteration** = one fya-driven Claude turn. After all tasks →
   **code-review rounds** → **finalize** (push branch + open PR). `finalize` is best-effort: if its
   `git push` hits a non-fast-forward (e.g. after a squash) it gives up — the branch/PR may not appear,
@@ -61,17 +70,39 @@ produces **no transcript** (a startup race). fya then waits its full **30 min tu
 ```sh
 C=executr-<id>
 # what's running
-docker exec $C ps -o etime,time,pcpu,cmd -ax | grep -E 'ralphex|fya|claude' | grep -v grep
+docker exec $C ps -o etime,time,pcpu,cmd -ax | grep -E 'ralphex|fya|claude|codex|node .*control-plane' | grep -v grep
 # stalled or working?  (empty = stalled)
 docker exec -u node -e HOME=/home/node $C find /home/node/.claude/projects/-workspace-<repo> -name '*.jsonl' -newermt '-2 min'
 # SOURCE OF TRUTH for current task = the agent's own words + commits (NOT the dashboard label):
 docker exec -u node $C tail -20 /workspace/<repo>/.ralphex/progress/progress-<plan>.txt
 docker exec -u node $C git -C /workspace/<repo> log --oneline <branch> | grep -iE 'feat:.*Task'
+# control-plane state
+docker exec -u node $C sh -c 'sqlite3 /workspace/.executr/orchestrator.db ".tables"'
+docker exec -u node $C cat /workspace/.executr/repos.list
+docker exec -u node $C ls -la /workspace/.executr/claims
 # how many stalls so far
 docker exec -u node $C grep -c 'fya turn timeout' /workspace/<repo>/.ralphex/progress/progress-<plan>.txt
 # loop decisions (filter SSE noise)
 docker logs --tail 60 $C 2>&1 | grep -v '\[SSE\]'
 ```
+
+## Control-plane development
+
+The service is a Node 22/Fastify app in `control-plane/`; it uses Node's built-in `node:sqlite`,
+Vitest, and a `node-sqlite-compat` Vitest plugin so Vite resolves the experimental builtin.
+
+```sh
+cd control-plane
+pnpm install
+pnpm run lint
+pnpm run typecheck
+pnpm run test
+pnpm run test:e2e
+pnpm run build
+```
+
+The baked image includes `/opt/executr-control-plane/dist/index.js`; `CONTROL_PLANE_DIR` can point
+the entrypoint at another source checkout for live debugging.
 
 ## Dashboard display bugs (cosmetic — ignore the labels)
 

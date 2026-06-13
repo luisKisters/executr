@@ -25,16 +25,20 @@ import {
   getPlanDetail,
   listNormalizedExecutions,
 } from './discovery';
-import { createPlan, hashContent, type PlanProvider } from './planCreation';
+import { createPlan, hashContent, parsePlanProvider } from './planCreation';
 import { readClaim, isActiveClaim } from './claims';
 import { addRepo, archiveRepo } from './repoManager';
 import { writeReposListFile } from './reposList';
 import {
+  ClaudeCodeRunner,
+  CodexRunner,
   DEFAULT_PROVIDER_POLICY,
+  ProviderRegistry,
   type ProviderPolicy,
   type ProviderSwitchTrigger,
 } from './providers';
 import { DEFAULT_CONTROL_PLANE_PROVIDER } from './contracts';
+import { ExecutionScheduler } from './executor';
 
 const SESSION_COOKIE = 'cp_session';
 const SESSION_VALUE = 'authenticated';
@@ -52,9 +56,21 @@ export async function createServer(
   // Write the loop-readable repos.list so the watch loop picks up the seeded registry.
   try { writeReposListFile(_db, config.workspaceRoot); } catch { /* non-fatal */ }
   const app = Fastify({ logger: false });
+  const providerRegistry = new ProviderRegistry();
+  const codexRunner = new CodexRunner();
+  providerRegistry.register(codexRunner);
+  providerRegistry.register(new ClaudeCodeRunner());
+  const scheduler = new ExecutionScheduler({
+    db: _db,
+    workspaceRoot: config.workspaceRoot,
+    claimsDir: config.claimsDir,
+    registry: providerRegistry,
+    providerPolicy: () => _providerPolicy,
+  });
+  const schedulerEnabled =
+    process.env['CONTROL_PLANE_ENABLE_EXECUTOR'] === '1' ||
+    process.env['NODE_ENV'] !== 'test';
 
-  const poller = new ObserverPoller(_db, { workspaceRoot: config.workspaceRoot });
-  const recoveryPoller = new RecoveryPoller(_db, { workspaceRoot: config.workspaceRoot });
   let telegramBot: TelegramBot | null = null;
   if (config.telegramBotToken) {
     telegramBot = new TelegramBot({
@@ -62,8 +78,14 @@ export async function createServer(
       db: _db,
       workspaceRoot: config.workspaceRoot,
       claimsDir: config.claimsDir,
+      runner: codexRunner,
     });
   }
+  const poller = new ObserverPoller(_db, { workspaceRoot: config.workspaceRoot });
+  const recoveryPoller = new RecoveryPoller(_db, {
+    workspaceRoot: config.workspaceRoot,
+    onApprovalRequest: request => { void telegramBot?.sendApprovalRequest(request); },
+  });
   if (startObserver) {
     app.addHook('onReady', async () => {
       poller.start();
@@ -223,6 +245,13 @@ export async function createServer(
 
     const repos = listRepos(config.workspaceRoot);
 
+    const provider = parsePlanProvider(form?.provider, DEFAULT_CONTROL_PLANE_PROVIDER);
+    if (!provider) {
+      return reply.type('text/html').send(
+        renderNewPlanPage(repos, { error: 'Provider must be one of: auto, claude-code, codex', values: form })
+      );
+    }
+
     const outcome = createPlan({
       workspaceRoot: config.workspaceRoot,
       claimsDir: config.claimsDir,
@@ -231,7 +260,7 @@ export async function createServer(
         title: form?.title ?? '',
         body: form?.body ?? '',
         validationCommands: form?.validationCommands ?? '',
-        provider: (form?.provider as PlanProvider) ?? DEFAULT_CONTROL_PLANE_PROVIDER,
+        provider,
       },
     });
 
@@ -239,6 +268,15 @@ export async function createServer(
       return reply.type('text/html').send(
         renderNewPlanPage(repos, { error: outcome.error, values: form })
       );
+    }
+
+    if (schedulerEnabled) {
+      scheduler.scheduleCreatedPlan({
+        repo: form?.repo ?? '',
+        fileName: outcome.fileName,
+        planHash: outcome.planHash,
+        requestedProvider: provider,
+      });
     }
 
     return reply.redirect(`/plans?created=${encodeURIComponent(outcome.planName)}`);
@@ -435,6 +473,11 @@ export async function createServer(
       provider?: string;
     };
 
+    const provider = parsePlanProvider(body?.provider, DEFAULT_CONTROL_PLANE_PROVIDER);
+    if (!provider) {
+      return reply.status(400).send({ error: 'Provider must be one of: auto, claude-code, codex' });
+    }
+
     const outcome = createPlan({
       workspaceRoot: config.workspaceRoot,
       claimsDir: config.claimsDir,
@@ -443,12 +486,20 @@ export async function createServer(
         title: body?.title ?? '',
         body: body?.body ?? '',
         validationCommands: body?.validationCommands ?? '',
-        provider: (body?.provider as PlanProvider) ?? DEFAULT_CONTROL_PLANE_PROVIDER,
+        provider,
       },
     });
 
     if (!outcome.ok) {
       return reply.status(outcome.statusCode).send({ error: outcome.error });
+    }
+    if (schedulerEnabled) {
+      scheduler.scheduleCreatedPlan({
+        repo,
+        fileName: outcome.fileName,
+        planHash: outcome.planHash,
+        requestedProvider: provider,
+      });
     }
     return reply.status(201).send({
       planName: outcome.planName,
@@ -470,5 +521,13 @@ function isPublicPath(pathname: string): boolean {
 }
 
 function page404(message: string): string {
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Not Found</title></head><body><h1>404 Not Found</h1><p>${message}</p><a href="/">Back to overview</a></body></html>`;
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Not Found</title></head><body><h1>404 Not Found</h1><p>${escapeHtml(message)}</p><a href="/">Back to overview</a></body></html>`;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }

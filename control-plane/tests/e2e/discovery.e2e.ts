@@ -74,7 +74,7 @@ beforeAll(async () => {
   mkdirSync(join(repoPath, '.ralphex', 'plan-state'), { recursive: true });
 
   writeFileSync(join(repoPath, 'docs', 'plans', 'sample-plan.md'), SAMPLE_PLAN);
-  writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'sample-plan_.sha256'), 'deadbeef');
+  writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'sample-plan.md_.sha256'), 'deadbeef');
   // no .status file → status=none (active)
 
   gitInit(repoPath);

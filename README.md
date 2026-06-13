@@ -71,15 +71,37 @@ claude setup-token            # -> CLAUDE_CODE_OAUTH_TOKEN   (VERIFY this keeps 
    - `CLAUDE_CODE_OAUTH_TOKEN`, `GITHUB_TOKEN` (required)
    - `REPOS` — optional bootstrap seed, comma-separated `name=URL[#branch]` (repos are managed via the control-plane UI after first boot; falls back to `REPO_URL`/`REPO_BRANCH` if unset)
    - `OPENAI_API_KEY` or a mounted `~/.codex/auth.json` for control-plane Codex execution
+   - optional control-plane paths: `WORKSPACE_ROOT` (`/workspace`), `ORCHESTRATOR_DB_PATH` (`$WORKSPACE_ROOT/.executr/orchestrator.db`), `CLAIMS_DIR` (`$WORKSPACE_ROOT/.executr/claims`), `SESSION_SECRET` (defaults to `CONTROL_PLANE_PASSWORD`), `HOST` (`0.0.0.0`)
    - `GIT_AUTHOR_NAME` / `GIT_AUTHOR_EMAIL`
-   - optional: `GROQ_API_KEY`, `TELEGRAM_BOT_TOKEN`, `RALPHEX_WEB_HOST` (dashboard bind address; defaults to `0.0.0.0` so Coolify's proxy can reach it)
+   - optional: `GROQ_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWLIST`, `RALPHEX_WEB_HOST` (dashboard bind address; defaults to `0.0.0.0` so Coolify's proxy can reach it)
 3. **Storage** — the named volume `executr_repo` persists the clone, `docs/plans/`, and `.ralphex/` state across redeploys.
-4. **Domain** — point one at port `8080` for the dashboard.
+4. **Domains** — point one domain at port `8080` for the ralphex dashboard and one at port `8090` for the control-plane UI/API. Log in to the control-plane with `CONTROL_PLANE_PASSWORD`.
 5. **Deploy.** First boot is slow (clone + `pnpm install` + Chrome already baked in).
 
 ## Step 3 — Run work
 
-Drop a markdown plan into `/workspace/<name>/docs/plans/` (per repo in `REPOS`) — via Coolify's container terminal, a committed file in the target repo, or the mounted volume. The loop picks it up; watch the dashboard; the PR lands on GitHub.
+Use the control-plane UI on `:8090` to add/archive repos, create plans, choose `auto`, `claude-code`, or `codex`, and inspect Activity/Sessions. File-drop plans still work: drop markdown into `/workspace/<name>/docs/plans/` via Coolify's container terminal, a committed file in the target repo, or the mounted volume. The legacy loop picks up unclaimed plans; Codex-claimed plans run through the control-plane executor.
+
+## Control-plane API
+
+`GET /healthz` is public. Other `/api/*` routes require the signed login cookie set by `POST /login`.
+
+- `GET /api/repos`, `POST /api/repos`, `DELETE /api/repos/:repo`
+- `GET /api/repos/:repo/plans`, `GET /api/repos/:repo/plans/:plan`, `POST /api/repos/:repo/plans`
+- `GET /api/executions`
+- `GET /api/provider-policy`, `PUT /api/provider-policy`
+- `POST /api/approvals/:id/decide`
+- `GET /api/sessions`
+
+## Telegram planning
+
+Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWLIST` (comma-separated Telegram user IDs). Text planning is wired; voice transcription is a future plan. Commands:
+
+- `/session new <name>`, `/session list`, `/session switch <id|name>`, `/session delete <id|name>`
+- `/repo <repo>`
+- `/plan`
+- `/submit`
+- `/approve <id>` and `/deny <id>`
 
 ## How your MCPs / skills / envs carry over
 
@@ -94,7 +116,7 @@ Drop a markdown plan into `/workspace/<name>/docs/plans/` (per repo in `REPOS`) 
 3. **Per-repo `.ralphex/`** — each target repo needs its own `.ralphex/` (config + prompts) committed, or it runs with ralphex defaults (no browser gate, no auto-PR).
 4. **Codex headless** — `OPENAI_API_KEY` bills per use; for ChatGPT-plan Codex, mount `~/.codex/auth.json` for the `node` user. `EXTERNAL_REVIEW` stays `none` for the legacy ralphex loop.
 5. **Dashboard idle** — verify `ralphex --serve --watch` runs without prompting on your ralphex version.
-6. **Voice ask-human** — not wired yet; `TELEGRAM_BOT_TOKEN` here only powers ralphex's built-in notifications for now.
+6. **Voice ask-human** — not wired yet; `TELEGRAM_BOT_TOKEN` powers the text planning bot and approval notifications today.
 
 ## Local test
 
@@ -102,6 +124,7 @@ Drop a markdown plan into `/workspace/<name>/docs/plans/` (per repo in `REPOS`) 
 cp .env.example .env   # fill in tokens
 docker compose up --build
 # dashboard: http://localhost:8080
+# control-plane: http://localhost:8090
 ```
 
 ## Background

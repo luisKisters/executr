@@ -12,8 +12,8 @@ services:
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}    # from `claude setup-token` — keeps the Max plan
       GITHUB_TOKEN: ${GITHUB_TOKEN}                          # repo + workflow scope (push + gh pr create)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}                    # control-plane Codex execution, unless ~/.codex/auth.json is mounted
-      GROQ_API_KEY: ${GROQ_API_KEY:-}                        # for the (future) voice ask-human
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}            # ralphex notifications
+      GROQ_API_KEY: ${GROQ_API_KEY:-}                        # for the future voice ask-human
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}            # Telegram planning bot
       # --- behavior ---
       # Bootstrap repos — optional seed (comma-separated): "name=URL[#branch]" or "URL".
       # After first boot, manage repos from the control-plane UI; REPOS is only used to
@@ -26,6 +26,11 @@ services:
       # --- control-plane (operator UI + orchestrator + Telegram planning) ---
       CONTROL_PLANE_PASSWORD: ${CONTROL_PLANE_PASSWORD:-}    # single shared password gating the UI/API
       CONTROL_PLANE_PORT: "${CONTROL_PLANE_PORT:-8090}"       # control-plane port; dashboard stays on 8080
+      HOST: ${HOST:-0.0.0.0}
+      WORKSPACE_ROOT: ${WORKSPACE_ROOT:-/workspace}
+      ORCHESTRATOR_DB_PATH: ${ORCHESTRATOR_DB_PATH:-}
+      CLAIMS_DIR: ${CLAIMS_DIR:-}
+      SESSION_SECRET: ${SESSION_SECRET:-}
       TELEGRAM_ALLOWLIST: ${TELEGRAM_ALLOWLIST:-}             # comma-separated Telegram user IDs
     volumes:
       - executr_repo:/workspace          # persistent clone + docs/plans + .ralphex state

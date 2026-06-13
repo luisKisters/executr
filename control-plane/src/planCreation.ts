@@ -6,6 +6,7 @@ import { claimPlan } from './claims';
 
 
 export type PlanProvider = ProviderName | 'auto';
+const PLAN_PROVIDERS: PlanProvider[] = ['auto', 'claude-code', 'codex'];
 
 export interface PlanInput {
   title: string;
@@ -17,6 +18,15 @@ export interface PlanInput {
 export type CreatePlanOutcome =
   | { ok: true; planName: string; fileName: string; planHash: string }
   | { ok: false; error: string; statusCode: number };
+
+export function parsePlanProvider(
+  value: unknown,
+  fallback: PlanProvider = DEFAULT_CONTROL_PLANE_PROVIDER
+): PlanProvider | null {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value !== 'string') return null;
+  return (PLAN_PROVIDERS as string[]).includes(value) ? (value as PlanProvider) : null;
+}
 
 // Convert a title to a safe filename slug.
 export function titleToFilename(title: string): string {
@@ -35,6 +45,10 @@ export function hashContent(content: string): string {
 // Returns an error message if the input is invalid, otherwise null.
 export function validatePlanInput(input: PlanInput): string | null {
   const { title, body, validationCommands } = input;
+
+  if (!parsePlanProvider(input.provider, input.provider)) {
+    return 'Provider must be one of: auto, claude-code, codex';
+  }
 
   if (!title.trim()) return 'Title is required';
 
@@ -80,9 +94,11 @@ export interface CreatePlanOptions {
   input: PlanInput;
 }
 
-export function createPlan(opts: CreatePlanOptions): CreatePlanOutcome {
-  const { workspaceRoot, claimsDir, repo, input } = opts;
+type RepoPathValidation =
+  | { ok: true; repoPath: string }
+  | { ok: false; error: string; statusCode: number };
 
+function validateRepoPath(workspaceRoot: string, repo: string): RepoPathValidation {
   if (!isSafeSegment(repo)) {
     return { ok: false, error: 'Invalid repo name', statusCode: 400 };
   }
@@ -92,6 +108,20 @@ export function createPlan(opts: CreatePlanOptions): CreatePlanOutcome {
   if (!repoPath.startsWith(safeRoot + '/') && repoPath !== safeRoot) {
     return { ok: false, error: 'Invalid repo name', statusCode: 400 };
   }
+
+  if (!existsSync(join(repoPath, '.git'))) {
+    return { ok: false, error: 'Repo is not cloned or active', statusCode: 404 };
+  }
+
+  return { ok: true, repoPath };
+}
+
+export function createPlan(opts: CreatePlanOptions): CreatePlanOutcome {
+  const { workspaceRoot, claimsDir, repo, input } = opts;
+
+  const repoValidation = validateRepoPath(workspaceRoot, repo);
+  if (!repoValidation.ok) return repoValidation;
+  const { repoPath } = repoValidation;
 
   const validationError = validatePlanInput(input);
   if (validationError) {
@@ -145,15 +175,13 @@ export interface SubmitRawPlanOptions {
 export function submitRawPlan(opts: SubmitRawPlanOptions): CreatePlanOutcome {
   const { workspaceRoot, claimsDir, repo, markdown, provider = DEFAULT_CONTROL_PLANE_PROVIDER } = opts;
 
-  if (!isSafeSegment(repo)) {
-    return { ok: false, error: 'Invalid repo name', statusCode: 400 };
+  if (!parsePlanProvider(provider, provider)) {
+    return { ok: false, error: 'Provider must be one of: auto, claude-code, codex', statusCode: 400 };
   }
 
-  const safeRoot = resolve(workspaceRoot);
-  const repoPath = resolve(join(workspaceRoot, repo));
-  if (!repoPath.startsWith(safeRoot + '/') && repoPath !== safeRoot) {
-    return { ok: false, error: 'Invalid repo name', statusCode: 400 };
-  }
+  const repoValidation = validateRepoPath(workspaceRoot, repo);
+  if (!repoValidation.ok) return repoValidation;
+  const { repoPath } = repoValidation;
 
   const titleMatch = /^#\s+Plan:\s+(.+)$/m.exec(markdown);
   if (!titleMatch) {

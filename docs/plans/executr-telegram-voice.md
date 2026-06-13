@@ -6,7 +6,7 @@ Add voice-message support to the executr Telegram planning bot: accept a Telegra
 message, transcribe it, and append the transcription to the active planning session so a plan
 can be drafted (`/plan`) and submitted (`/submit`) hands-free.
 
-**Depends on** `docs/plans/executr-control-plane.md` (the control-plane + Telegram bot +
+**Depends on** `docs/plans/completed/executr-control-plane.md` (the control-plane + Telegram bot +
 session store from its Task 10). Do not run this plan until that one has completed — the
 session store, `/plan`, and `/submit` it builds on must already exist.
 

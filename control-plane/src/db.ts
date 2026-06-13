@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { AttemptStatus, ClassificationSignal, ProviderName, ApprovalStatus } from './contracts';
+import type { AttemptResult, AttemptStatus, ClassificationSignal, ProviderName, ApprovalStatus } from './contracts';
 
 export interface ExecutionRow {
   id: number;
@@ -239,6 +239,32 @@ export function updateExecutionClassification(
   }
 }
 
+export function updateExecutionFromAttemptResult(
+  db: OrchestratorDB,
+  attemptId: string,
+  result: AttemptResult
+): void {
+  const now = Date.now();
+  db.prepare(`
+    UPDATE executions
+    SET provider_used = ?,
+        model = ?,
+        branch = ?,
+        status = ?,
+        classification = ?,
+        updated_at = ?
+    WHERE attempt_id = ?
+  `).run(
+    result.provider,
+    result.model,
+    result.branch || null,
+    result.status,
+    result.classification,
+    now,
+    attemptId
+  );
+}
+
 export function listApprovalRequests(db: OrchestratorDB): ApprovalRequestRow[] {
   const rows = db.prepare('SELECT * FROM approval_requests ORDER BY created_at DESC').all() as Record<string, unknown>[];
   return rows.map(toApprovalRequestRow);
@@ -411,7 +437,7 @@ export function getTelegramSessionsForUser(db: OrchestratorDB, userId: number): 
 }
 
 export function getCurrentSessionForUser(db: OrchestratorDB, userId: number): TelegramSessionRow | null {
-  const r = db.prepare('SELECT * FROM telegram_sessions WHERE telegram_user_id = ? AND is_current = 1 LIMIT 1').get(userId) as Record<string, unknown> | undefined;
+  const r = db.prepare("SELECT * FROM telegram_sessions WHERE telegram_user_id = ? AND is_current = 1 AND status = 'active' LIMIT 1").get(userId) as Record<string, unknown> | undefined;
   return r ? toTelegramSessionRow(r) : null;
 }
 
@@ -443,7 +469,7 @@ export function updateTelegramSession(
 
 export function setCurrentSession(db: OrchestratorDB, userId: number, newSessionId: string): void {
   db.prepare('UPDATE telegram_sessions SET is_current = 0 WHERE telegram_user_id = ?').run(userId);
-  db.prepare('UPDATE telegram_sessions SET is_current = 1 WHERE id = ?').run(newSessionId);
+  db.prepare("UPDATE telegram_sessions SET is_current = 1 WHERE id = ? AND status = 'active'").run(newSessionId);
 }
 
 export function listTelegramSessions(db: OrchestratorDB): TelegramSessionRow[] {

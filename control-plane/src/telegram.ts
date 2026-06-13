@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import type { OrchestratorDB, ApprovalRequestRow, TelegramSessionRow } from './db';
 import {
   insertTelegramSession,
@@ -252,7 +253,8 @@ export class TelegramBot {
     const userId = msg.from!.id;
     const sessions = getTelegramSessionsForUser(this.db, userId);
     const target = sessions.find(s =>
-      s.id === nameOrId || s.id.startsWith(nameOrId) || s.sessionName === nameOrId
+      s.status === 'active' &&
+      (s.id === nameOrId || s.id.startsWith(nameOrId) || s.sessionName === nameOrId)
     );
     if (!target) {
       await this.reply(msg.chat.id, `Session not found: ${nameOrId}`);
@@ -276,7 +278,7 @@ export class TelegramBot {
       await this.reply(msg.chat.id, `Session not found: ${nameOrId}`);
       return;
     }
-    updateTelegramSession(this.db, target.id, { status: 'abandoned' });
+    updateTelegramSession(this.db, target.id, { status: 'abandoned', isCurrent: false });
     await this.reply(msg.chat.id, `Session "${target.sessionName}" deleted.`);
   }
 
@@ -321,7 +323,7 @@ export class TelegramBot {
         targetRepo: session.targetRepo,
         sessionName: session.sessionName,
       };
-      draftResult = await this.runner.draftPlan(planningSession, session.targetRepo);
+      draftResult = await this.runner.draftPlan(planningSession, join(this.workspaceRoot, session.targetRepo));
     } else {
       // Fallback: generate a simple template plan
       const title = session.sessionName;
@@ -370,7 +372,7 @@ export class TelegramBot {
       return;
     }
 
-    updateTelegramSession(this.db, session.id, { status: 'submitted' });
+    updateTelegramSession(this.db, session.id, { status: 'submitted', isCurrent: false });
     await this.reply(msg.chat.id, `Plan "${outcome.planName}" submitted to ${session.targetRepo}!`);
   }
 

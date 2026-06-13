@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { execSync, type ExecSyncOptions } from 'node:child_process';
+import { execFileSync, execSync, type ExecFileSyncOptions } from 'node:child_process';
 import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ClassificationSignal } from './contracts';
@@ -11,6 +11,8 @@ import {
   setLastRecoveryAction,
   getRunningExecutions,
   getExecutionByAttemptId,
+  listApprovalRequests,
+  type ApprovalRequestRow,
 } from './db';
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -171,15 +173,23 @@ export function decideRecovery(ctx: RecoveryContext): RecoveryAction {
 
 // ── Git / shell exec abstraction (injectable for testing) ──────────────────
 
-export type ExecFn = (cmd: string, opts?: ExecSyncOptions) => string;
+export type ExecFn = (cmd: string, args: string[], opts?: ExecFileSyncOptions) => string;
 
-function defaultExecFn(cmd: string, opts?: ExecSyncOptions): string {
+function defaultExecFn(cmd: string, args: string[], opts?: ExecFileSyncOptions): string {
   try {
-    return execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts }) as string;
+    return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts }) as string;
   } catch (err) {
     const e = err as { stderr?: string; message?: string };
     throw new Error(e.stderr ?? e.message ?? String(err));
   }
+}
+
+export function isSafeGitBranchName(branch: string): boolean {
+  if (!branch || branch.startsWith('-')) return false;
+  if (branch.includes('..') || branch.includes('@{')) return false;
+  if (/[\\~^:?*\[\]\s\x00-\x1f\x7f]/.test(branch)) return false;
+  if (branch.endsWith('/') || branch.endsWith('.') || branch.includes('//')) return false;
+  return true;
 }
 
 // Runtime-only paths that are safe to gitignore automatically
@@ -223,11 +233,14 @@ export function executeRecovery(
       let success = true;
       let message = '';
       try {
-        execFn(`git push -u origin "${branch}" --force-with-lease`, { cwd: ctx.repoPath });
+        if (!isSafeGitBranchName(branch)) {
+          throw new Error(`Unsafe branch name: ${branch}`);
+        }
+        execFn('git', ['push', '-u', 'origin', branch, '--force-with-lease'], { cwd: ctx.repoPath });
         message = `Pushed branch ${branch} after failed finalize`;
         // Best-effort PR open — failure here doesn't fail the recovery
         try {
-          execFn(`gh pr create --title "Plan: ${ctx.planSlug}" --body "Auto-pushed after failed finalize" --head "${branch}"`, { cwd: ctx.repoPath });
+          execFn('gh', ['pr', 'create', '--title', `Plan: ${ctx.planSlug}`, '--body', 'Auto-pushed after failed finalize', '--head', branch], { cwd: ctx.repoPath });
           message += ' + opened PR';
         } catch {
           message += ' (PR already exists or could not be created)';
@@ -248,10 +261,10 @@ export function executeRecovery(
         fixGitExcludes(ctx.repoPath);
         // Stage the .gitignore change and commit if needed
         try {
-          execFn('git add .gitignore', { cwd: ctx.repoPath });
-          const status = execFn('git status --porcelain', { cwd: ctx.repoPath });
+          execFn('git', ['add', '.gitignore'], { cwd: ctx.repoPath });
+          const status = execFn('git', ['status', '--porcelain'], { cwd: ctx.repoPath });
           if (status.trim()) {
-            execFn('git commit -m "chore: add runtime paths to .gitignore (auto-recovery)"', { cwd: ctx.repoPath });
+            execFn('git', ['commit', '-m', 'chore: add runtime paths to .gitignore (auto-recovery)'], { cwd: ctx.repoPath });
           }
         } catch { /* ignore if nothing to commit */ }
         message = 'Added runtime paths to .gitignore';
@@ -311,11 +324,16 @@ export function executeRecovery(
 export interface RecoveryPollOptions {
   workspaceRoot: string;
   intervalMs?: number;
+  onApprovalRequest?: (request: ApprovalRequestRow) => void;
 }
 
 export class RecoveryPoller {
   private readonly db: OrchestratorDB;
-  private readonly opts: Required<RecoveryPollOptions>;
+  private readonly opts: {
+    workspaceRoot: string;
+    intervalMs: number;
+    onApprovalRequest?: (request: ApprovalRequestRow) => void;
+  };
   private timer: ReturnType<typeof setInterval> | null = null;
   private readonly execFn: ExecFn;
 
@@ -324,6 +342,7 @@ export class RecoveryPoller {
     this.opts = {
       workspaceRoot: opts.workspaceRoot,
       intervalMs: opts.intervalMs ?? RECOVERY_POLL_INTERVAL_MS,
+      onApprovalRequest: opts.onApprovalRequest,
     };
     this.execFn = execFn ?? defaultExecFn;
   }
@@ -389,7 +408,11 @@ export class RecoveryPoller {
           }
 
           const decision = decideRecovery(ctx);
-          executeRecovery(decision, ctx, this.db, this.execFn);
+          const result = executeRecovery(decision, ctx, this.db, this.execFn);
+          if (result.approvalRequestId && this.opts.onApprovalRequest) {
+            const request = listApprovalRequests(this.db).find(r => r.id === result.approvalRequestId);
+            if (request) this.opts.onApprovalRequest(request);
+          }
         } catch {
           // Don't let one bad execution break the whole poll cycle
         }

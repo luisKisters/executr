@@ -6,6 +6,7 @@ import {
   decideRecovery,
   executeRecovery,
   fixGitExcludes,
+  isSafeGitBranchName,
   MAX_AUTO_RETRIES,
   PROVIDER_COOLDOWN_MS,
   STARTUP_STALL_REPEAT_THRESHOLD,
@@ -447,15 +448,15 @@ describe('executeRecovery — push_branch', () => {
       createdAt: NOW, updatedAt: NOW,
     });
 
-    const calls: string[] = [];
-    const fakeExec = (cmd: string) => { calls.push(cmd); return ''; };
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    const fakeExec = (cmd: string, args: string[]) => { calls.push({ cmd, args }); return ''; };
 
     const decision: RecoveryAction = { type: 'push_branch', branch: 'feature/p' };
     const ctx = baseCtx({ attemptId, branch: 'feature/p', classification: 'failed_finalize' });
     const result = executeRecovery(decision, ctx, db, fakeExec);
 
     expect(result.success).toBe(true);
-    expect(calls.some(c => c.includes('git push') && c.includes('feature/p'))).toBe(true);
+    expect(calls.some(c => c.cmd === 'git' && c.args.includes('push') && c.args.includes('feature/p'))).toBe(true);
     const updated = getExecutionByAttemptId(db, attemptId);
     expect(updated?.lastRecoveryAction).toContain('push_branch');
     // Retry count incremented
@@ -476,8 +477,8 @@ describe('executeRecovery — push_branch', () => {
       createdAt: NOW, updatedAt: NOW,
     });
 
-    const throwingExec = (cmd: string) => {
-      if (cmd.includes('git push')) throw new Error('rejected');
+    const throwingExec = (cmd: string, args: string[]) => {
+      if (cmd === 'git' && args.includes('push')) throw new Error('rejected');
       return '';
     };
 
@@ -489,6 +490,32 @@ describe('executeRecovery — push_branch', () => {
     expect(result.message).toContain('failed');
     const updated = getExecutionByAttemptId(db, attemptId);
     expect(updated?.lastRecoveryAction).toContain('failed');
+    db.close();
+  });
+
+  it('rejects unsafe branch names before invoking git', () => {
+    const db = makeDb();
+    const attemptId = 'att-push-injection-1';
+    insertExecution(db, {
+      repo: 'r', planFile: 'p.md', planHash: 'h', attemptId,
+      providerRequested: 'claude-code', providerUsed: null, model: null,
+      branch: 'feature/p"; touch /tmp/pwned; "',
+      worktree: null, status: 'running',
+      latestProgressTs: null, latestTranscriptTs: null,
+      rateLimitCooldownUntil: null, lastRecoveryAction: null,
+      classification: 'failed_finalize',
+      createdAt: NOW, updatedAt: NOW,
+    });
+
+    let execCalled = false;
+    const fakeExec = () => { execCalled = true; return ''; };
+    const decision: RecoveryAction = { type: 'push_branch', branch: 'feature/p"; touch /tmp/pwned; "' };
+    const result = executeRecovery(decision, baseCtx({ attemptId }), db, fakeExec);
+
+    expect(isSafeGitBranchName('feature/p')).toBe(true);
+    expect(isSafeGitBranchName('feature/p"; touch /tmp/pwned; "')).toBe(false);
+    expect(execCalled).toBe(false);
+    expect(result.success).toBe(false);
     db.close();
   });
 });
@@ -514,7 +541,7 @@ describe('executeRecovery — fix_excludes', () => {
       });
 
       // Use a fake exec that doesn't actually call git
-      const fakeExec = (_cmd: string) => '';
+      const fakeExec = (_cmd: string, _args: string[]) => '';
 
       const decision: RecoveryAction = { type: 'fix_excludes' };
       const ctx = baseCtx({ attemptId, repoPath: repoDir, classification: 'dirty_tree_blocked' });

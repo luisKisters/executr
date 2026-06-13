@@ -118,11 +118,10 @@ describe('buildCodexExecArgv', () => {
     expect(argv[0]).toBe('exec');
     expect(argv).toContain('--sandbox');
     expect(argv).toContain('read-only');
-    expect(argv).toContain('--ask-for-approval');
-    expect(argv).toContain('never');
     expect(argv).toContain('--model');
     expect(argv).toContain(DEFAULT_CODEX_MODEL);
     expect(argv).toContain('-c');
+    expect(argv).toContain('approval_policy="never"');
     expect(argv).toContain(`model_reasoning_effort="${DEFAULT_CODEX_REASONING_EFFORT}"`);
     expect(argv[argv.length - 1]).toBe('inspect the codebase');
   });
@@ -143,8 +142,8 @@ describe('buildCodexExecArgv', () => {
       model: 'm',
       approvalMode: 'on-request',
     });
-    expect(argv).toContain('on-request');
-    expect(argv).not.toContain('never');
+    expect(argv).toContain('approval_policy="on-request"');
+    expect(argv).not.toContain('approval_policy="never"');
   });
 });
 
@@ -205,7 +204,7 @@ describe('buildCodexRunPlanPrompt', () => {
     planHash: 'abc123hash',
     attemptResultPath: '.ralphex/attempt-my-plan.json',
     progressPath: '.ralphex/progress/progress-my-plan.txt',
-    planStatePath: '.ralphex/plan-state/my-plan_',
+    planStatePath: '.ralphex/plan-state/my-plan.md_',
   };
 
   it('includes the plan content', () => {
@@ -231,7 +230,7 @@ describe('buildCodexRunPlanPrompt', () => {
 
   it('includes the plan state path', () => {
     const prompt = buildCodexRunPlanPrompt(opts);
-    expect(prompt).toContain('.ralphex/plan-state/my-plan_');
+    expect(prompt).toContain('.ralphex/plan-state/my-plan.md_');
   });
 
   it('instructs to use --sandbox workspace-write semantics (commit-per-task)', () => {
@@ -632,8 +631,8 @@ describe('CodexRunner.runPlan', () => {
     const runner = new CodexRunner({ spawnFn });
     await runner.runPlan(repo, planPath, { provider: 'codex', attemptId: 'a-state' });
 
-    const sha256File = join(repo, '.ralphex', 'plan-state', 'test-plan_.sha256');
-    const statusFile = join(repo, '.ralphex', 'plan-state', 'test-plan_.status');
+    const sha256File = join(repo, '.ralphex', 'plan-state', 'test-plan.md_.sha256');
+    const statusFile = join(repo, '.ralphex', 'plan-state', 'test-plan.md_.status');
     expect(existsSync(sha256File)).toBe(true);
     expect(existsSync(statusFile)).toBe(true);
     expect(readFileSync(sha256File, 'utf8')).toBe(expectedHash);
@@ -740,7 +739,7 @@ describe('CodexRunner.runPlan', () => {
     expect(result.tasksCompleted).toBe(3);
   });
 
-  it('synthesizes result from exit code when JSON still missing after retry', async () => {
+  it('fails when JSON is still missing after retry', async () => {
     const { repo, planPath } = setupCodexFixture();
 
     // Both calls exit 0 but never write the JSON
@@ -750,10 +749,10 @@ describe('CodexRunner.runPlan', () => {
     const result = await runner.runPlan(repo, planPath, { provider: 'codex', attemptId: 'a-synth' });
 
     expect(spawnFn.mock.calls.length).toBe(2);
-    expect(result.status).toBe('completed');
+    expect(result.status).toBe('failed');
     expect(result.provider).toBe('codex');
-    expect(result.classification).toBe('healthy');
-    expect(result.branch).toContain('test-plan');
+    expect(result.classification).toBe('dead_loop');
+    expect(result.summary).toContain('did not write');
   });
 
   it('lock is held during codex exec', async () => {
@@ -776,7 +775,7 @@ describe('CodexRunner.runPlan', () => {
     expect(isLockHeld(repo, planHash)).toBe(false); // released after run
   });
 
-  it('codex exec argv: uses workspace-write sandbox, approval never, correct model and cwd', async () => {
+  it('codex exec argv: uses workspace-write sandbox, approval never config, correct model and cwd', async () => {
     const { repo, planPath } = setupCodexFixture();
     const spawnFn = vi.fn().mockImplementation((_cmd: string, _args: string[], opts: { cwd: string }) => {
       const attemptFile = join(opts.cwd, '.ralphex', 'attempt-test-plan.json');
@@ -793,8 +792,7 @@ describe('CodexRunner.runPlan', () => {
     expect(args[0]).toBe('exec');
     expect(args).toContain('--sandbox');
     expect(args).toContain('workspace-write');
-    expect(args).toContain('--ask-for-approval');
-    expect(args).toContain('never');
+    expect(args).toContain('approval_policy="never"');
     expect(args).toContain('--model');
     expect(args).toContain('custom-model');
     expect(args).toContain(`model_reasoning_effort="${DEFAULT_CODEX_REASONING_EFFORT}"`);
@@ -829,7 +827,7 @@ describe('CodexRunner.runPlan', () => {
     const runner = new CodexRunner({ spawnFn });
     await runner.runPlan(repo, planPath, { provider: 'codex', attemptId: 'a-fail-state' });
 
-    const statusFile = join(repo, '.ralphex', 'plan-state', 'test-plan_.status');
+    const statusFile = join(repo, '.ralphex', 'plan-state', 'test-plan.md_.status');
     expect(existsSync(statusFile)).toBe(true);
     expect(readFileSync(statusFile, 'utf8')).toBe('failed');
   });

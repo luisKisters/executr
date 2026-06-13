@@ -117,6 +117,11 @@ describe('validatePlanInput', () => {
     const input = { ...validInput, body: '### Iteration 1: Setup\n- [ ] do it\n' };
     expect(validatePlanInput(input)).toBeNull();
   });
+
+  it('rejects invalid provider values at runtime', () => {
+    const err = validatePlanInput({ ...validInput, provider: 'bad-provider' as PlanInput['provider'] });
+    expect(err).toContain('Provider');
+  });
 });
 
 // ── generatePlanMarkdown ───────────────────────────────────────────────
@@ -242,6 +247,19 @@ describe('createPlan — malformed cases are rejected', () => {
     expect(outcome.ok).toBe(false);
     if (outcome.ok) return;
     expect(outcome.statusCode).toBe(400);
+  });
+
+  it('rejects repos that are not cloned git repositories', () => {
+    const outcome = createPlan({
+      workspaceRoot,
+      claimsDir,
+      repo: 'missingrepo',
+      input: validInput,
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.statusCode).toBe(404);
+    expect(outcome.error).toContain('not cloned');
   });
 });
 
@@ -437,5 +455,45 @@ describe('POST /api/repos/:repo/plans (server endpoint)', () => {
       headers: { 'content-type': 'application/json' },
     });
     expect(res.statusCode).toBe(401);
+  });
+
+  it('returns 400 for invalid provider without writing a plan', async () => {
+    const { createServer } = await import('../../src/server');
+    const config = {
+      workspaceRoot,
+      orchestratorDbPath: join(workspaceRoot, '.executr', 'api-test4.db'),
+      claimsDir,
+      password: 'test',
+      sessionSecret: 'test-session-secret-32chars-padded!',
+      port: 0,
+      host: '127.0.0.1',
+    };
+    const app = await createServer(config);
+
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/login',
+      payload: 'password=test',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    });
+    const cookieStr = (loginRes.headers['set-cookie'] as string).split(';')[0];
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/repos/testrepo/plans',
+      payload: JSON.stringify({
+        title: 'Invalid Provider Plan',
+        body: '### Task 1: API task\n- [ ] Do something\n',
+        validationCommands: 'pnpm test',
+        provider: 'bogus',
+      }),
+      headers: {
+        cookie: cookieStr,
+        'content-type': 'application/json',
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(existsSync(join(repoPath, 'docs', 'plans', 'invalid-provider-plan.md'))).toBe(false);
   });
 });

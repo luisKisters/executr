@@ -28,7 +28,7 @@ Current user intent:
 - `cd control-plane && pnpm run test`
 - `cd control-plane && pnpm run test:e2e`
 - `cd control-plane && pnpm run build`
-- `CONTROL_PLANE_PASSWORD=test CONTROL_PLANE_PORT=8099 WORKSPACE_ROOT="$(mktemp -d)" ORCHESTRATOR_DB_PATH="$WORKSPACE_ROOT/.executr/orchestrator.db" CLAIMS_DIR="$WORKSPACE_ROOT/.executr/claims" node control-plane/dist/index.js`
+- `tmp="$(mktemp -d)" && CONTROL_PLANE_PASSWORD=test CONTROL_PLANE_PORT=8099 WORKSPACE_ROOT="$tmp" ORCHESTRATOR_DB_PATH="$tmp/.executr/orchestrator.db" CLAIMS_DIR="$tmp/.executr/claims" node control-plane/dist/index.js`
 
 ### Task 1: Restore and reconcile the control-plane implementation
 

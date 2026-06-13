@@ -4,6 +4,7 @@ import { execSync } from 'node:child_process';
 import type { ClassificationSignal, ProviderName } from './contracts';
 import type { OrchestratorDB, ExecutionRow } from './db';
 import { getRunningExecutions, updateExecutionClassification } from './db';
+import { planStateStem } from './planState';
 
 // How long after execution start before we classify no-transcript as a startup stall.
 const STARTUP_STALL_THRESHOLD_MS = 5 * 60 * 1000;
@@ -133,8 +134,9 @@ export function readProgressLogTail(repoPath: string, planSlug: string, lines = 
 
 // ── Plan-state reader ──────────────────────────────────────────────────────
 
-export function readPlanStatus(repoPath: string, planSlug: string): 'completed' | 'failed' | 'invalid' | 'none' {
-  const statusFile = join(repoPath, '.ralphex', 'plan-state', `${planSlug}_.status`);
+export function readPlanStatus(repoPath: string, planFile: string): 'completed' | 'failed' | 'invalid' | 'none' {
+  const normalizedPlanFile = planFile.endsWith('.md') ? planFile : `${planFile}.md`;
+  const statusFile = join(repoPath, '.ralphex', 'plan-state', `${planStateStem(normalizedPlanFile)}.status`);
   try {
     const s = readFileSync(statusFile, 'utf8').trim();
     if (s === 'completed' || s === 'failed' || s === 'invalid') return s;
@@ -239,7 +241,7 @@ export function collectObservationContext(
 
   const latestProgressMtimeMs = getProgressFileMtime(repoPath, planSlug);
   const progressLogTail = readProgressLogTail(repoPath, planSlug);
-  const planStatus = readPlanStatus(repoPath, planSlug);
+  const planStatus = readPlanStatus(repoPath, execution.planFile);
   const codexAttemptClassification = effectiveProvider === 'codex'
     ? readCodexAttemptClassification(repoPath, planSlug)
     : null;

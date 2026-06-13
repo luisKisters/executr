@@ -44,10 +44,14 @@ describe('openDatabase', () => {
     db.close();
   });
 
-  it('records schema version 1', () => {
+  it('records the latest schema version and creates migrated tables', () => {
     const db = openDatabase(dbPath);
-    const row = db.prepare('SELECT version FROM schema_version').get() as { version: number } | undefined;
-    expect(row?.version).toBe(1);
+    const row = db.prepare('SELECT MAX(version) AS version FROM schema_version').get() as { version: number } | undefined;
+    expect(row?.version).toBe(4);
+    for (const table of ['executions', 'approval_requests', 'telegram_sessions', 'telegram_known_users', 'repos', 'schema_version']) {
+      const tableRow = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table);
+      expect(tableRow).toBeDefined();
+    }
     db.close();
   });
 

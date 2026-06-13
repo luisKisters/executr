@@ -12,6 +12,7 @@ import {
   type ClassificationSignal,
 } from './contracts';
 import { acquireLock } from './claims';
+import { planStateStem } from './planState';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -106,8 +107,8 @@ export function buildCodexExecArgv(opts: {
   return [
     'exec',
     '--sandbox', opts.sandbox,
-    '--ask-for-approval', opts.approvalMode ?? 'never',
     '--model', opts.model,
+    '-c', `approval_policy="${opts.approvalMode ?? 'never'}"`,
     '-c', `model_reasoning_effort="${opts.reasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT}"`,
     opts.prompt,
   ];
@@ -419,6 +420,7 @@ export class CodexRunner implements AgentRunner {
     }
 
     const planSlug = basename(planPath, '.md');
+    const stateStem = planStateStem(planPath);
     const planHash = computePlanHash(planContent);
 
     // Acquire per-(repo, planHash) in-process lock for the whole run
@@ -443,7 +445,7 @@ export class CodexRunner implements AgentRunner {
         planHash,
         attemptResultPath: `.ralphex/attempt-${planSlug}.json`,
         progressPath: `.ralphex/progress/progress-${planSlug}.txt`,
-        planStatePath: `.ralphex/plan-state/${planSlug}_`,
+        planStatePath: `.ralphex/plan-state/${stateStem}`,
       });
 
       const argv = buildCodexExecArgv({
@@ -484,8 +486,8 @@ export class CodexRunner implements AgentRunner {
           endedAt,
         };
 
-        writeFileSync(join(planStateDir, `${planSlug}_.sha256`), planHash, 'utf8');
-        writeFileSync(join(planStateDir, `${planSlug}_.status`), 'failed', 'utf8');
+        writeFileSync(join(planStateDir, `${stateStem}.sha256`), planHash, 'utf8');
+        writeFileSync(join(planStateDir, `${stateStem}.status`), 'failed', 'utf8');
         writeFileSync(attemptFile, JSON.stringify(finalResult), 'utf8');
         appendProgressLog(progressFile, `CodexRunner: failed (exit ${String(exitCode1)})`);
 
@@ -520,8 +522,8 @@ export class CodexRunner implements AgentRunner {
             startedAt,
             endedAt,
           };
-          writeFileSync(join(planStateDir, `${planSlug}_.sha256`), planHash, 'utf8');
-          writeFileSync(join(planStateDir, `${planSlug}_.status`), 'failed', 'utf8');
+          writeFileSync(join(planStateDir, `${stateStem}.sha256`), planHash, 'utf8');
+          writeFileSync(join(planStateDir, `${stateStem}.status`), 'failed', 'utf8');
           writeFileSync(attemptFile, JSON.stringify(finalResult), 'utf8');
           appendProgressLog(progressFile, `CodexRunner: retry failed (exit ${String(exitCode2)})`);
           return finalResult;
@@ -530,27 +532,26 @@ export class CodexRunner implements AgentRunner {
         parsed = readAttemptResultFile(attemptFile);
       }
 
-      // Synthesize if still missing after retry (Codex forgot to write it)
       const endedAt = new Date().toISOString();
       const finalResult: AttemptResult = parsed
         ? { ...parsed, provider: 'codex', endedAt }
         : {
-            status: 'completed',
+            status: 'failed',
             provider: 'codex',
             model: config.model ?? this.model,
-            branch: `feature/${planSlug}`,
+            branch: '',
             tasksCompleted: 0,
             commits: [],
             validation: { status: 'skipped' },
-            classification: 'healthy',
-            summary: stdout1,
+            classification: 'dead_loop',
+            summary: 'Codex exited successfully but did not write a valid attempt result JSON.',
             startedAt,
             endedAt,
           };
 
       const planStatus = finalResult.status === 'completed' ? 'completed' : 'failed';
-      writeFileSync(join(planStateDir, `${planSlug}_.sha256`), planHash, 'utf8');
-      writeFileSync(join(planStateDir, `${planSlug}_.status`), planStatus, 'utf8');
+      writeFileSync(join(planStateDir, `${stateStem}.sha256`), planHash, 'utf8');
+      writeFileSync(join(planStateDir, `${stateStem}.status`), planStatus, 'utf8');
       writeFileSync(attemptFile, JSON.stringify(finalResult), 'utf8');
       appendProgressLog(progressFile, `CodexRunner: completed with status=${finalResult.status}`);
 

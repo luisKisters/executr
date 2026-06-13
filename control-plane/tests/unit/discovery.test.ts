@@ -75,11 +75,11 @@ beforeAll(() => {
   writeFileSync(join(repoPath, 'docs', 'plans', 'task-zero-plan.md'), PLAN_TASK_ZERO);
 
   // normal-plan has completed status
-  writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'normal-plan_.sha256'), 'abc123');
-  writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'normal-plan_.status'), 'completed');
+  writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'normal-plan.md_.sha256'), 'abc123');
+  writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'normal-plan.md_.status'), 'completed');
 
   // task-zero-plan has no status (none)
-  writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'task-zero-plan_.sha256'), 'def456');
+  writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'task-zero-plan.md_.sha256'), 'def456');
 
   // progress log for normal-plan
   writeFileSync(

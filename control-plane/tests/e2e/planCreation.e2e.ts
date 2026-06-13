@@ -242,6 +242,24 @@ describe('New plan form — validation errors (agent-browser)', () => {
     });
     expect(res.status).toBe(400);
   });
+
+  it('rejects invalid provider values via API', async () => {
+    const cookie = await getSessionCookie();
+    const res = await fetch(`${BASE_URL}/api/repos/planrepo/plans`, {
+      method: 'POST',
+      headers: {
+        cookie,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        title: 'Invalid Provider E2E',
+        body: '### Task 1: Bad provider\n- [ ] thing\n',
+        validationCommands: 'pnpm test',
+        provider: 'bogus',
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
 });
 
 describe('Plan creation with codex provider writes a claim (API)', () => {

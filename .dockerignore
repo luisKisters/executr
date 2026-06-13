@@ -1,3 +1,12 @@
 *
 !Dockerfile
 !entrypoint.sh
+!control-plane/
+!control-plane/src/
+!control-plane/src/**
+!control-plane/package.json
+!control-plane/pnpm-lock.yaml
+!control-plane/pnpm-workspace.yaml
+!control-plane/pnpm.yaml
+!control-plane/.npmrc
+!control-plane/tsconfig.json

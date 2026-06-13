@@ -90,6 +90,21 @@ describe('loadConfig env overrides', () => {
     expect(config.sessionSecret).toBe('separate-secret');
   });
 
+  it('treats empty optional path env vars as unset', () => {
+    process.env.WORKSPACE_ROOT = '';
+    process.env.ORCHESTRATOR_DB_PATH = '';
+    process.env.CLAIMS_DIR = '';
+    process.env.SESSION_SECRET = '';
+    process.env.HOST = '';
+    process.env.CONTROL_PLANE_PASSWORD = 'pass';
+    const config = loadConfig();
+    expect(config.workspaceRoot).toBe('/workspace');
+    expect(config.orchestratorDbPath).toBe('/workspace/.executr/orchestrator.db');
+    expect(config.claimsDir).toBe('/workspace/.executr/claims');
+    expect(config.sessionSecret).toBe('pass');
+    expect(config.host).toBe('0.0.0.0');
+  });
+
   it('parses CONTROL_PLANE_PORT as integer', () => {
     process.env.CONTROL_PLANE_PORT = '9090';
     const config = loadConfig();

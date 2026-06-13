@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mkdtempSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { execSync } from 'node:child_process';
 import {
   TelegramBot,
   parseCommandText,
@@ -26,6 +27,12 @@ let mockSend: SendMessageFn;
 
 const ALLOWED_USER = 111111;
 const ALLOWED_CHAT = 999999;
+
+function gitInit(dir: string): void {
+  execSync('git init', { cwd: dir, stdio: 'ignore' });
+  execSync('git config user.email "test@test.com"', { cwd: dir, stdio: 'ignore' });
+  execSync('git config user.name "Test"', { cwd: dir, stdio: 'ignore' });
+}
 
 function makeBot(opts: {
   allowlist?: number[];
@@ -253,6 +260,13 @@ describe('/session delete', () => {
     expect(updated?.status).toBe('abandoned');
   });
 
+  it('clears current session when deleting it', async () => {
+    const bot = makeBot();
+    await bot.handleUpdate(makeUpdate('/session new ToDelete'));
+    await bot.handleUpdate(makeUpdate('/session delete ToDelete'));
+    expect(getCurrentSessionForUser(db, ALLOWED_USER)).toBeNull();
+  });
+
   it('replies with error for unknown session', async () => {
     const bot = makeBot();
     await bot.handleUpdate(makeUpdate('/session delete nope'));
@@ -359,6 +373,7 @@ describe('/submit', () => {
     // Create a fixture repo with docs/plans dir
     const repoDir = join(tmpDir, 'myrepo');
     mkdirSync(join(repoDir, 'docs', 'plans'), { recursive: true });
+    gitInit(repoDir);
 
     const DRAFT = '# Plan: My Feature\n\n## Validation Commands\n\n```\npnpm test\n```\n\n### Task 1: Build it\n\n- [ ] Do the thing\n';
     const bot = makeBot();
@@ -373,7 +388,10 @@ describe('/submit', () => {
     await bot.handleUpdate(makeUpdate('/submit'));
 
     const updated = getCurrentSessionForUser(db, ALLOWED_USER);
-    expect(updated?.status).toBe('submitted');
+    expect(updated).toBeNull();
+    const submitted = getTelegramSessionsForUser(db, ALLOWED_USER).find(s => s.sessionName === 'SubmitTest');
+    expect(submitted?.status).toBe('submitted');
+    expect(submitted?.isCurrent).toBe(false);
     expect(sent[0].text).toContain('submitted');
   });
 

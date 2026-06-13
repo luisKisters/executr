@@ -175,16 +175,14 @@ plan_seen_unchanged() {  # state_dir plan digest
   [ -f "$sf.sha256" ] && [ "$(cat "$sf.sha256")" = "$3" ]
 }
 
-# clone/update + install each repo; collect dashboard watch dirs
-WATCH_ARGS=""
-for entry in $REPO_LIST; do
-  parse_entry "$entry"
+init_repo_from_entry() {
+  parse_entry "$1"
   if [ ! -d "$DIR/.git" ]; then
     echo "executr: cloning $URL ($BRANCH) -> $DIR"
     git clone --branch "$BRANCH" "$URL" "$DIR" || { echo "executr: clone failed: $URL"; continue; }
   fi
   ( cd "$DIR" && git fetch origin && git checkout "$BRANCH" && git pull --ff-only ) || true
-  if [ -f "$DIR/package.json" ]; then
+  if [ -f "$DIR/package.json" ] && [ ! -d "$DIR/node_modules" ]; then
     echo "executr: pnpm install in $NAME ..."
     ( cd "$DIR" && pnpm install --prefer-offline || pnpm install ) || true
   fi
@@ -196,20 +194,34 @@ for entry in $REPO_LIST; do
     printf '%s\n' '.ralphex/' >> "$DIR/.git/info/exclude"
   fi
   trust_repo "$DIR"
-  WATCH_ARGS="$WATCH_ARGS --watch $DIR/.ralphex/progress"
+  mkdir -p "$DASHBOARD_PROGRESS_DIR"
+  rm -rf "$DASHBOARD_PROGRESS_DIR/$NAME" 2>/dev/null || true
+  ln -sfn "$DIR/.ralphex/progress" "$DASHBOARD_PROGRESS_DIR/$NAME" 2>/dev/null || true
+}
+
+# clone/update + install each repo; collect dashboard watch dirs
+DASHBOARD_PROGRESS_DIR="/workspace/.executr/progress"
+WATCH_ARGS="--watch $DASHBOARD_PROGRESS_DIR"
+mkdir -p "$DASHBOARD_PROGRESS_DIR"
+for entry in $(get_repo_list); do
+  init_repo_from_entry "$entry"
 done
 
 # Control-plane service: build and start alongside the ralphex dashboard.
-# Lives inside the self-hosted executr clone at /workspace/executr/control-plane.
+# Uses the baked image copy by default, with a workspace clone as an override/fallback.
 # Starts on CONTROL_PLANE_PORT (default 8090); the ralphex dashboard stays on 8080.
-# Build is synchronous so we always run the latest source; failure is non-fatal —
-# the ralphex loop continues unaffected (the additive guard is already in place).
-_cp_dir="/workspace/executr/control-plane"
+# If a source directory is selected and dist is missing, build it once at startup.
+_cp_dir="${CONTROL_PLANE_DIR:-/opt/executr-control-plane}"
+if [ ! -f "$_cp_dir/dist/index.js" ] && [ -d "/workspace/executr/control-plane" ]; then
+  _cp_dir="/workspace/executr/control-plane"
+fi
 if [ -d "$_cp_dir" ] && [ -f "$_cp_dir/package.json" ]; then
-  echo "executr: building control-plane ..."
   _cp_ok=1
-  ( cd "$_cp_dir" && pnpm install --prefer-offline 2>&1 || pnpm install 2>&1 ) || _cp_ok=0
-  [ "$_cp_ok" = "1" ] && ( cd "$_cp_dir" && pnpm run build 2>&1 ) || _cp_ok=0
+  if [ ! -f "$_cp_dir/dist/index.js" ]; then
+    echo "executr: building control-plane ..."
+    ( cd "$_cp_dir" && pnpm install --prefer-offline 2>&1 || pnpm install 2>&1 ) || _cp_ok=0
+    [ "$_cp_ok" = "1" ] && ( cd "$_cp_dir" && pnpm run build 2>&1 ) || _cp_ok=0
+  fi
   if [ "$_cp_ok" = "1" ] && [ -f "$_cp_dir/dist/index.js" ]; then
     node "$_cp_dir/dist/index.js" &
     echo "executr: control-plane started on port ${CONTROL_PLANE_PORT:-8090}"
@@ -246,7 +258,7 @@ phase_pusher &
 echo "executr: watching plans across: $REPOS"
 while true; do
   for entry in $(get_repo_list); do
-    parse_entry "$entry"
+    init_repo_from_entry "$entry"
     [ -d "$DIR" ] || continue
     # refresh from origin each poll so plans/code pushed to the repo are picked up
     # without a restart, and so each run starts from the latest base branch (best-effort)

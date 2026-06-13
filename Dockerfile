@@ -10,7 +10,7 @@ LABEL org.opencontainers.image.title="executr" \
 
 # --- system deps: git, search, headless-Chrome shared libs, gh CLI ---
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git ca-certificates curl gnupg ripgrep jq tini \
+      git ca-certificates curl gnupg ripgrep jq sqlite3 tini \
       libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 \
       libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
       libpango-1.0-0 libcairo2 fonts-liberation \
@@ -80,6 +80,12 @@ RUN mkdir -p /home/node/.claude \
       > /home/node/.claude/settings.json \
  && chown -R node:node /home/node/.claude
 
+COPY control-plane/package.json control-plane/pnpm-lock.yaml control-plane/pnpm-workspace.yaml control-plane/pnpm.yaml control-plane/.npmrc control-plane/tsconfig.json /opt/executr-control-plane/
+COPY control-plane/src /opt/executr-control-plane/src
+RUN cd /opt/executr-control-plane \
+ && pnpm install --frozen-lockfile \
+ && pnpm run build
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
@@ -92,5 +98,6 @@ USER root
 
 WORKDIR /workspace
 EXPOSE 8080
+EXPOSE 8090
 # entrypoint starts as root to chown the volume, then drops to `app`.
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]

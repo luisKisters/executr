@@ -285,14 +285,14 @@ describe('readPlanStatus', () => {
   it('returns completed when status file contains completed', () => {
     const repoPath = join(tmpRoot, 'repo-status-done');
     mkdirSync(join(repoPath, '.ralphex', 'plan-state'), { recursive: true });
-    writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'my-plan_.status'), 'completed');
+    writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'my-plan.md_.status'), 'completed');
     expect(readPlanStatus(repoPath, 'my-plan')).toBe('completed');
   });
 
   it('returns failed when status file contains failed', () => {
     const repoPath = join(tmpRoot, 'repo-status-fail');
     mkdirSync(join(repoPath, '.ralphex', 'plan-state'), { recursive: true });
-    writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'my-plan_.status'), 'failed');
+    writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'my-plan.md_.status'), 'failed');
     expect(readPlanStatus(repoPath, 'my-plan')).toBe('failed');
   });
 });
@@ -385,7 +385,7 @@ describe('collectObservationContext', () => {
     const repoPath = join(workspaceRoot, 'testrepo');
     mkdirSync(join(repoPath, '.ralphex', 'plan-state'), { recursive: true });
     mkdirSync(join(repoPath, '.ralphex', 'progress'), { recursive: true });
-    writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'my-plan_.status'), 'completed');
+    writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'my-plan.md_.status'), 'completed');
     writeFileSync(
       join(repoPath, '.ralphex', 'progress', 'progress-my-plan.txt'),
       'Task 1 done\n'
@@ -509,7 +509,7 @@ describe('ObserverPoller', () => {
     mkdirSync(join(repoPath, '.ralphex', 'plan-state'), { recursive: true });
     mkdirSync(join(repoPath, '.ralphex', 'progress'), { recursive: true });
     // Completed plan
-    writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'poll-plan_.status'), 'completed');
+    writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'poll-plan.md_.status'), 'completed');
 
     const dbPath = join(tmpRoot, 'poller-db.db');
     const db = openDatabase(dbPath);

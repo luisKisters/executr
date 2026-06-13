@@ -22,14 +22,14 @@ export function parseTelegramAllowlist(raw: string | undefined): number[] {
 }
 
 export function loadConfig(): Config {
-  const workspaceRoot = process.env.WORKSPACE_ROOT ?? '/workspace';
+  const workspaceRoot = process.env.WORKSPACE_ROOT?.trim() || '/workspace';
   const orchestratorDbPath =
-    process.env.ORCHESTRATOR_DB_PATH ?? `${workspaceRoot}/.executr/orchestrator.db`;
-  const claimsDir = process.env.CLAIMS_DIR ?? `${workspaceRoot}/.executr/claims`;
+    process.env.ORCHESTRATOR_DB_PATH?.trim() || `${workspaceRoot}/.executr/orchestrator.db`;
+  const claimsDir = process.env.CLAIMS_DIR?.trim() || `${workspaceRoot}/.executr/claims`;
   const password = process.env.CONTROL_PLANE_PASSWORD ?? '';
-  const sessionSecret = process.env.SESSION_SECRET ?? password;
+  const sessionSecret = process.env.SESSION_SECRET?.trim() || password;
   const port = parseInt(process.env.CONTROL_PLANE_PORT ?? '8090', 10);
-  const host = process.env.HOST ?? '0.0.0.0';
+  const host = process.env.HOST?.trim() || '0.0.0.0';
   const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN ?? '';
   const telegramAllowlist = parseTelegramAllowlist(process.env.TELEGRAM_ALLOWLIST);
   const reposEnv = process.env.REPOS ?? '';

@@ -250,7 +250,7 @@ existing dashboard + orchestrator observe it identically.
   - commits per task with `feat: … Task N` messages on a feature branch named like the
     Claude path's convention;
   - progress written to `<repo>/.ralphex/progress/progress-<plan>.txt`;
-  - plan-state recorded at `<repo>/.ralphex/plan-state/<plan>_.{sha256,status}` exactly as
+  - plan-state recorded at `<repo>/.ralphex/plan-state/<plan>.md_.{sha256,status}` exactly as
     the loop expects (`completed|failed|invalid`);
   - finalize: push the branch + open the PR (same as the Claude path), so no manual step.
 - [x] **Result contract** — Codex must emit a strict machine-readable `AttemptResult` JSON to a

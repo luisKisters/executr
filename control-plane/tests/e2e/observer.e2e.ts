@@ -84,8 +84,8 @@ beforeAll(async () => {
     '# Plan: Observed Plan\n\n## Validation Commands\n\n```\npnpm test\n```\n\n### Task 1: Do it\n- [ ] Do something\n'
   );
   // Plan is "completed" so the observer will classify it as healthy
-  writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'obs-plan_.sha256'), 'deadbeef');
-  writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'obs-plan_.status'), 'completed');
+  writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'obs-plan.md_.sha256'), 'deadbeef');
+  writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'obs-plan.md_.status'), 'completed');
 
   gitInit(repoPath);
 

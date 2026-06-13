@@ -4,6 +4,7 @@ import { execSync } from 'node:child_process';
 import type { ClassificationSignal, ProviderName, AttemptStatus } from './contracts';
 import type { OrchestratorDB } from './db';
 import { listExecutions as dbListExecutions, listActiveRegistryRepos } from './db';
+import { planStateStem } from './planState';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -109,10 +110,11 @@ interface PlanState {
   mtime: number | null;
 }
 
-function getPlanState(repoPath: string, planName: string): PlanState {
+function getPlanState(repoPath: string, planFile: string): PlanState {
   const stateDir = join(repoPath, '.ralphex', 'plan-state');
-  const sha256File = join(stateDir, `${planName}_.sha256`);
-  const statusFile = join(stateDir, `${planName}_.status`);
+  const stem = planStateStem(planFile);
+  const sha256File = join(stateDir, `${stem}.sha256`);
+  const statusFile = join(stateDir, `${stem}.status`);
 
   let hash: string | null = null;
   let mtime: number | null = null;
@@ -216,7 +218,7 @@ function buildPlanSummary(workspaceRoot: string, repoName: string, file: string)
     createdTime = st.birthtimeMs > 0 ? st.birthtimeMs : st.ctimeMs;
   } catch { /* ignore */ }
 
-  const { status, hash, mtime } = getPlanState(repoPath, planName);
+  const { status, hash, mtime } = getPlanState(repoPath, file);
   const { tasks, validationWarnings } = parseTasksFromMarkdown(rawMarkdown);
 
   const currentBranch = getGitBranch(repoPath);
@@ -251,7 +253,7 @@ export function listRepos(workspaceRoot: string): RepoInfo[] {
         planCount = planFiles.length;
         for (const file of planFiles) {
           const planName = file.replace(/\.md$/, '');
-          const { status } = getPlanState(repoPath, planName);
+          const { status } = getPlanState(repoPath, file);
           if (status === 'none') {
             activePlan = planName;
             break;
@@ -314,7 +316,7 @@ export function getPlanDetail(
     return null;
   }
 
-  const { status, hash, mtime } = getPlanState(repoPath, planName);
+  const { status, hash, mtime } = getPlanState(repoPath, planFile);
   const { tasks, validationWarnings } = parseTasksFromMarkdown(rawMarkdown);
 
   const progressFile = join(repoPath, '.ralphex', 'progress', `progress-${planName}.txt`);
@@ -383,8 +385,8 @@ export function listReposFromRegistry(db: OrchestratorDB, workspaceRoot: string)
       const planFiles = readdirSync(plansDir).filter(f => f.endsWith('.md'));
       planCount = planFiles.length;
       for (const file of planFiles) {
-        const planName = file.replace(/\.md$/, '');
-        const { status } = getPlanState(repoPath, planName);
+          const planName = file.replace(/\.md$/, '');
+          const { status } = getPlanState(repoPath, file);
         if (status === 'none') {
           activePlan = planName;
           break;

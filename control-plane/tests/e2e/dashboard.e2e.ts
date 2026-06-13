@@ -88,7 +88,7 @@ beforeAll(async () => {
   mkdirSync(join(repoPath, '.ralphex', 'progress'), { recursive: true });
 
   writeFileSync(join(repoPath, 'docs', 'plans', 'sample-plan.md'), SAMPLE_PLAN);
-  writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'sample-plan_.sha256'), 'feedcafe');
+  writeFileSync(join(repoPath, '.ralphex', 'plan-state', 'sample-plan.md_.sha256'), 'feedcafe');
   writeFileSync(
     join(repoPath, '.ralphex', 'progress', 'progress-sample-plan.txt'),
     'Step 1 done\nvalidation: passed\n'
